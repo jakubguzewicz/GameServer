@@ -1,5 +1,4 @@
 #include "main.hpp"
-#include "game_messages.pb.h"
 #include <iostream>
 
 int main(int argc, char const *argv[]) {
