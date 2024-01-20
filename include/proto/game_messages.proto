@@ -1,0 +1,97 @@
+syntax = "proto3";
+
+import "google/protobuf/any.proto";
+
+package game_messages;
+
+message SampleString {
+    string sample_string = 1;
+}
+
+message LogInRequest {
+    string username = 1;
+    string password = 2;
+}
+
+message LogInResponse {
+    optional uint32 user_id = 1; // only add when login was successful
+}
+
+message JoinWorldRequest {
+    uint32 user_id = 1;
+    uint32 character_id = 2;
+}
+
+message JoinWorldResponse {
+    optional CharacterData character_data = 3; // add when successful
+}
+
+message CharacterData {
+    google.protobuf.Any details = 1; // TODO
+}
+
+message GameAction {
+    google.protobuf.Any details = 1; // TODO
+}
+
+message EntityState {
+    float pos_x = 1;
+    float pos_y = 2;
+    float rot_z = 3;
+    repeated GameAction game_actions = 4;
+}
+
+message CharacterUpdateData {
+    uint32 user_id = 1;
+    EntityState character_state = 2;
+}
+
+// duplicate of ClientUpdateState added for verbosity and a little bit of logic
+message EntityUpdateData {
+    uint32 entity_id = 1;
+    EntityState entity_state = 2;
+}
+
+message ServerUpdateState {
+    repeated CharacterUpdateData characters_update_data = 1;
+    repeated EntityUpdateData entities_update_data = 2;
+}
+
+message ClientUpdateState {
+    uint32 user_id = 1;
+    CharacterUpdateData character_state = 2;
+}
+
+enum ChatGroup {
+    CHAT_GROUP_UNSPECIFIED = 0;
+    CHAT_GROUP_ALL = 1;
+    CHAT_GROUP_WHISPER = 2;
+    CHAT_GROUP_PARTY = 3;
+}
+
+message ChatMessageRequest {
+    uint32 user_id = 1;
+    ChatGroup chat_group = 2;
+    repeated uint32 dest_users_id = 3; // used only with whisper
+    string message = 4;
+}
+
+message ChatMessageResponse {
+    uint32 source_user_id = 1;
+    ChatGroup chat_group = 2;
+    repeated uint32 dest_users_id = 3;
+    string message = 4;
+}
+
+message GameMessage {
+    oneof message_type {
+        LogInRequest log_in_request = 1;
+        LogInResponse log_in_response = 2;
+        JoinWorldRequest join_world_request = 3;
+        JoinWorldResponse join_world_response = 4;
+        ClientUpdateState client_update_state = 5;
+        ServerUpdateState server_update_state = 6;
+        ChatMessageRequest chat_message_request = 7;
+        ChatMessageResponse chat_message_response = 8;
+    }
+}
