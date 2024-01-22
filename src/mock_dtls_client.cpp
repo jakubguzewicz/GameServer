@@ -3,6 +3,7 @@
 #include <string>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 int main(int argc, char const *argv[]) {
 
@@ -46,8 +47,7 @@ int main(int argc, char const *argv[]) {
             continue;
         }
 
-        if (!BIO_connect(sock, BIO_ADDRINFO_address(address_info),
-                         BIO_SOCK_KEEPALIVE | BIO_SOCK_NODELAY)) {
+        if (!BIO_connect(sock, BIO_ADDRINFO_address(address_info), 0)) {
             BIO_closesocket(sock);
             sock = -1;
             continue;
@@ -73,7 +73,7 @@ int main(int argc, char const *argv[]) {
         return 1;
     }
 
-    BIO_set_fd(bio, sock, BIO_CLOSE);
+    BIO_set_fd(bio, sock, BIO_NOCLOSE);
 
     SSL_set_bio(dtls_ssl, bio, bio);
 
@@ -89,7 +89,7 @@ int main(int argc, char const *argv[]) {
     }
 
     if (SSL_connect(dtls_ssl) < 1) {
-        printf("Failed to connect to the server\n");
+        std::cout << "Failed to connect to the server" << std::endl;
         /*
          * If the failure is due to a verification error we can get more
          * information about it from SSL_get_verify_result().
@@ -108,25 +108,33 @@ int main(int argc, char const *argv[]) {
     game_messages::SampleString in_message;
     std::string in_message_string;
     std::string out_message_string;
-    std::vector<char> in_message_vector;
 
-    // write correct values to proto message and send it;
-    out_message.set_sample_string("Test message one, two, 3");
-    out_message.SerializeToString(&out_message_string);
-    std::vector<char> out_message_vector(out_message_string.begin(),
-                                         out_message_string.end());
-    SSL_write(dtls_ssl, &out_message_vector[0], out_message_vector.size());
+    char buf[65535] = {};
 
-    // now listen for response
-    if (SSL_read(dtls_ssl, &in_message_vector[0],
-                 in_message_vector.max_size())) {
-        std::string in_message_string(in_message_vector.begin(),
-                                      in_message_vector.end());
-        in_message.ParseFromString(in_message_string);
-        std::cout << "Received message: " << in_message.sample_string()
-                  << std::endl;
-    } else {
-        std::cout << "Didn't read anything!" << std::endl;
+    for (int i = 1; i < 5; i++) {
+
+        // write correct values to proto message and send it;
+
+        out_message.set_sample_string("Test message " + std::to_string(i));
+        out_message.SerializeToString(&out_message_string);
+
+        SSL_write(dtls_ssl, out_message_string.data(),
+                  out_message_string.size());
+        std::cout << std::endl << "Message sent" << std::endl;
+
+        // now listen for response
+        size_t readbytes;
+        if (SSL_read_ex(dtls_ssl, buf, sizeof(buf), &readbytes) > 0) {
+            std::string in_message_string(buf, readbytes);
+            std::cout << "Received message raw form: " << in_message_string
+                      << std::endl;
+            in_message.ParseFromString(in_message_string);
+            std::cout << "Received message: " << in_message.sample_string()
+                      << std::endl;
+        } else {
+            std::cout << "Didn't read anything!" << std::endl;
+        }
+        sleep(1);
     }
 
     // cleanup

@@ -3,16 +3,38 @@
 #include <string>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <unistd.h>
+
+int generate_cookie(SSL *ssl, unsigned char *cookie, unsigned int *cookie_len) {
+
+    (void)ssl;
+    (void)cookie;
+    (void)cookie_len;
+    // just a quick check, this cookie is not normal
+    for (int i = 0; i < 20; i++) {
+        cookie[i] = (char)'a' + i;
+    }
+    cookie_len[0] = 20u;
+
+    return 1;
+}
+int verify_cookie(SSL *ssl, const unsigned char *cookie,
+                  unsigned int cookie_len) {
+    (void)ssl;
+    (void)cookie;
+    (void)cookie_len;
+
+    return 1;
+}
 
 int main(int argc, char const *argv[]) {
 
-    // if (argc != 3) {
-    //     std::cout << "Bad arguments: hostname, port" << std::endl;
-    //     return 1;
-    // }
+    if (argc != 2) {
+        std::cout << "Bad arguments: port" << std::endl;
+        return 1;
+    }
 
-    // std::vector<char> hostname(argv[1], argv[1] + strlen(argv[1]) + 1);
-    // std::vector<char> port(argv[2], argv[2] + strlen(argv[2]) + 1);
+    std::vector<char> port(argv[1], argv[1] + strlen(argv[1]) + 1);
 
     (void)argc;
     (void)argv[0];
@@ -22,7 +44,10 @@ int main(int argc, char const *argv[]) {
         std::cout << "Failed to create SSL_CTX" << std::endl;
     }
 
-    SSL_CTX_set_verify(dtls_ctx, SSL_VERIFY_PEER, NULL);
+    SSL_CTX_set_min_proto_version(dtls_ctx, DTLS1_2_VERSION);
+
+    SSL_CTX_set_cookie_generate_cb(dtls_ctx, generate_cookie);
+    SSL_CTX_set_cookie_verify_cb(dtls_ctx, verify_cookie);
 
     if (!SSL_CTX_use_certificate_file(dtls_ctx, "certs/cert.pem",
                                       SSL_FILETYPE_PEM)) {
@@ -33,11 +58,12 @@ int main(int argc, char const *argv[]) {
                                      SSL_FILETYPE_PEM)) {
         std::cout << "Failed to find key.pem file" << std::endl;
     }
-
     auto dtls_ssl = SSL_new(dtls_ctx);
     if (dtls_ssl == NULL) {
         std::cout << "Failed to create SSL" << std::endl;
     }
+
+    SSL_set_options(dtls_ssl, SSL_OP_COOKIE_EXCHANGE);
 
     int sock = -1;
     BIO_ADDRINFO *result;
@@ -49,21 +75,24 @@ int main(int argc, char const *argv[]) {
         std::cout << "Could not create socket fd" << std::endl;
     }
 
-    // start listening on port 5720 (random number not on known list :D)
-    if (BIO_lookup_ex(NULL, "5720", BIO_LOOKUP_SERVER, AF_INET, SOCK_DGRAM, 0,
-                      &result) == 0) {
-        std::cout << "BIO_lookup didn't find an address" << std::endl;
-    }
+    const int on = 1;
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const void *)&on,
+               (socklen_t)sizeof(on));
+
+    // start listening on port given in args
+    BIO_lookup_ex("127.0.0.1", &port[0], BIO_LOOKUP_SERVER, AF_INET, SOCK_DGRAM,
+                  0, &result);
 
     for (address_info = result; address_info != NULL;
          BIO_ADDRINFO_next(address_info)) {
         sock = BIO_socket(BIO_ADDRINFO_family(address_info), SOCK_DGRAM, 0, 0);
         if (sock == -1) {
+            std::cout << "fail on BIO_socket" << std::endl;
             continue;
         }
 
-        if (!BIO_listen(sock, BIO_ADDRINFO_address(address_info),
-                        BIO_SOCK_KEEPALIVE | BIO_SOCK_NODELAY)) {
+        if (!BIO_listen(sock, BIO_ADDRINFO_address(address_info), 0)) {
+            std::cout << "fail on BIO_listen" << std::endl;
             BIO_closesocket(sock);
             sock = -1;
             continue;
@@ -75,6 +104,8 @@ int main(int argc, char const *argv[]) {
 
     if (sock == -1) {
         std::cout << "Could not start listening" << std::endl;
+    } else {
+        std::cout << "Started listening" << std::endl;
     }
     // No need to keep it anymore
     BIO_ADDRINFO_free(result);
@@ -82,13 +113,16 @@ int main(int argc, char const *argv[]) {
     // Now create BIO
     BIO *bio;
 
-    bio = BIO_new(BIO_s_socket());
+    // bio = BIO_new(BIO_s_socket());
+    bio = BIO_new(BIO_s_datagram());
     if (bio == NULL) {
         BIO_closesocket(sock);
         return 1;
     }
 
     BIO_set_fd(bio, sock, BIO_CLOSE);
+    BIO_ctrl(SSL_get_rbio(dtls_ssl), BIO_CTRL_DGRAM_SET_CONNECTED, 0,
+             &address_info);
 
     SSL_set_bio(dtls_ssl, bio, bio);
 
@@ -117,28 +151,41 @@ int main(int argc, char const *argv[]) {
     std::vector<char> out_message_vector;
 
     // added only because SSL_get_error requires this variable
-    int ret = 0;
+    // int ret = 0;
+
+    char buf[65535] = {};
+    size_t readbytes;
 
     while (!(SSL_get_shutdown(dtls_ssl) & SSL_RECEIVED_SHUTDOWN)) {
         // read message
-        SSL_read(dtls_ssl, &in_message_vector[0], in_message_vector.max_size());
-        std::string in_message_string(in_message_vector.begin(),
-                                      in_message_vector.end());
+        for (;;) {
 
-        if (SSL_get_error(dtls_ssl, ret) != SSL_ERROR_NONE) {
-            break;
+            if (SSL_read_ex(dtls_ssl, buf, sizeof(buf), &readbytes) > 0) {
+
+                std::string in_message_string(buf, readbytes);
+
+                // always true in blocking behavior, usually false in
+                // nonblocking
+                //
+                // if (SSL_get_error(dtls_ssl, ret) != SSL_ERROR_NONE) {
+                //     break;
+                // }
+
+                in_message.ParseFromString(in_message_string);
+                std::cout << std::endl
+                          << "Received message: " << in_message.sample_string()
+                          << std::endl;
+
+                // reply to it
+                out_message.set_sample_string("Received your message: " +
+                                              in_message.sample_string());
+
+                out_message.SerializeToString(&out_message_string);
+
+                SSL_write(dtls_ssl, out_message_string.data(),
+                          out_message_string.size());
+            }
         }
-
-        in_message.ParseFromString(in_message_string);
-        std::cout << "Received message: " << in_message.sample_string()
-                  << std::endl;
-
-        // reply to it
-        out_message.set_sample_string("Received you message: " +
-                                      in_message.sample_string());
-        std::vector<char> out_message_vector(out_message_string.begin(),
-                                             out_message_string.end());
-        SSL_write(dtls_ssl, &out_message_vector[0], out_message_vector.size());
     }
 
     // cleanup

@@ -2,6 +2,8 @@
 # Edit at https://www.toptal.com/developers/gitignore?templates=c++,visualstudiocode,cmake
 
 build/
+docker/
+*.pcap
 
 # test file with one passed and one failed test
 sanity_check.cpp
