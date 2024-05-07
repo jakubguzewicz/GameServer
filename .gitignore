@@ -1,10 +1,13 @@
 # Created by https://www.toptal.com/developers/gitignore/api/c++,visualstudiocode,cmake
 # Edit at https://www.toptal.com/developers/gitignore?templates=c++,visualstudiocode,cmake
 
+#temporary files used in testing, to remove later
 tmp/
+*.pcap
+
+#build files
 build/
 docker/
-*.pcap
 
 # test file with one passed and one failed test
 sanity_check.cpp
