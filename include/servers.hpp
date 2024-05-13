@@ -2,14 +2,15 @@
 #include <ssl_deleter.h>
 #include <user_session.hpp>
 
-class Server {
+class AuthServer {
 
   public:
     std::unique_ptr<SSL, SslDeleter> ssl;
 };
 
-class GameServer : public Server {
+class GameServer {
 
   public:
+    std::unique_ptr<SSL, SslDeleter> ssl;
     std::vector<UserSession> connectedUsers;
 };
