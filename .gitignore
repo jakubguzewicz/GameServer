@@ -5,6 +5,9 @@
 tmp/
 *.pcap
 
+#cache
+.cache
+
 #build files
 build/
 docker/

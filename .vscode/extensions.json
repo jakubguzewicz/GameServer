@@ -1,0 +1,11 @@
+{
+    "recommendations": [
+        "llvm-vs-code-extensions.vscode-clangd",
+        "cheshirekow.cmake-format",
+        "xaver.clang-format",
+        "qiumingge.cpp-check-lint",
+        "twxs.cmake",
+        "ms-vscode.cpptools",
+        "ms-vscode.cpptools-themes"
+    ]
+}
