@@ -1,6 +1,7 @@
 #include <openssl/ssl.h>
 #include <ssl_deleter.h>
 #include <user_session.hpp>
+#include <vector>
 
 class AuthServer {
 

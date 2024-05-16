@@ -14,7 +14,7 @@ int main(int argc, char const *argv[]) {
     std::vector<UserSession> connected_users;
 
     // Setup listeners
-    std::cout << "Hello there!" << std::endl;
+    std::cout << "Hello there!\n";
 
     // TODO: change to read from config file
     std::string client_port = "4720";
@@ -47,30 +47,30 @@ void listen_for_new_clients_ssl(std::string port,
     (void)users_vector;
 
     // TODO: change paths to use config file
-    auto cert_path = "certs/client_cert.pem";
-    auto key_path = "certs/client_key.pem";
+    auto cert_path = std::string("certs/client_cert.pem");
+    auto key_path = std::string("certs/client_key.pem");
 
-    auto dtls_ctx = SSL_CTX_new(DTLS_server_method());
+    auto *dtls_ctx = SSL_CTX_new(DTLS_server_method());
     if (dtls_ctx == NULL) {
         throw std::runtime_error("Failed to create SSL_CTX");
     }
 
     SSL_CTX_set_min_proto_version(dtls_ctx, DTLS1_2_VERSION);
 
-    if (!SSL_CTX_use_certificate_file(dtls_ctx, cert_path, SSL_FILETYPE_PEM)) {
+    if (SSL_CTX_use_certificate_file(dtls_ctx, cert_path.c_str(), SSL_FILETYPE_PEM) != 1) {
         throw std::runtime_error("Failed to load client cert with path: " +
                                  std::string(cert_path));
     }
 
-    if (!SSL_CTX_use_PrivateKey_file(dtls_ctx, key_path, SSL_FILETYPE_PEM)) {
+    if (SSL_CTX_use_PrivateKey_file(dtls_ctx, key_path.c_str(), SSL_FILETYPE_PEM) != 1) {
         throw std::runtime_error("Failed to load client key with path: " +
                                  std::string(key_path));
     }
 
     // It should be a loop from here
 
-    auto dtls_ssl = SSL_new(dtls_ctx);
-    if (dtls_ssl == NULL) {
+    auto *dtls_ssl = SSL_new(dtls_ctx);
+    if (dtls_ssl == nullptr) {
         throw std::runtime_error("Failed to create client listener SSL");
     }
 
@@ -88,7 +88,7 @@ void listen_for_new_clients_ssl(std::string port,
 void listen_for_new_game_servers_ssl(
     std::string port, std::vector<GameServer> &game_servers_vector) {
 
-    std::cout << "TODO: setup server listener" << std::endl;
+    std::cout << "TODO: setup server listener\n";
     (void)port;
     (void)game_servers_vector;
 }
@@ -96,7 +96,7 @@ void listen_for_new_game_servers_ssl(
 void listen_for_new_auth_servers_ssl(
     std::string port, std::vector<AuthServer> &auth_servers_vector) {
 
-    std::cout << "TODO: setup auth server listener" << std::endl;
+    std::cout << "TODO: setup auth server listener\n";
     (void)port;
     (void)auth_servers_vector;
 }

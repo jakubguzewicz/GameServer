@@ -3,10 +3,10 @@
 #pragma once
 
 struct SslDeleter {
-    void operator()(SSL *_p) {
-        SSL_shutdown(_p);
-        SSL_free(_p);
+    void operator()(SSL *ssl) {
+        SSL_shutdown(ssl);
+        SSL_free(ssl);
     }
 
-    void operator()(SSL_CTX *_p) { SSL_CTX_free(_p); }
+    void operator()(SSL_CTX *ssl) { SSL_CTX_free(ssl); }
 };
