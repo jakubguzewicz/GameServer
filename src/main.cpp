@@ -173,7 +173,8 @@ void listen_for_new_clients_ssl(const std::string &port,
     auto cert_path = std::string("certs/client_cert.pem");
     auto key_path = std::string("certs/client_key.pem");
 
-    auto *dtls_ctx = setup_new_dtls_ctx(cert_path, key_path);
+    auto dtls_ctx = std::unique_ptr<SSL_CTX, SslDeleter>(
+        setup_new_dtls_ctx(cert_path, key_path));
 
     // Bind socket on which we listen
     // We listen on exactly one port (like), so it needs to be outside of
@@ -201,7 +202,8 @@ void listen_for_new_clients_ssl(const std::string &port,
                 "Could not create BIO object in client listener");
         }
 
-        auto dtls_ssl = std::unique_ptr<SSL, SslDeleter>(SSL_new(dtls_ctx));
+        auto dtls_ssl =
+            std::unique_ptr<SSL, SslDeleter>(SSL_new(dtls_ctx.get()));
         if (dtls_ssl == nullptr) {
             throw std::runtime_error("Failed to create client listener SSL");
         }
