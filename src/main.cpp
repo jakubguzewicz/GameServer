@@ -128,6 +128,20 @@ void handle_client_connection(std::unique_ptr<SSL, SslDeleter> ssl,
     (void)users_vector;
 }
 
+void handle_game_server_connection(
+    std::unique_ptr<SSL, SslDeleter> ssl,
+    std::vector<GameServer> &game_servers_vector) {
+    (void)ssl;
+    (void)game_servers_vector;
+}
+
+void handle_auth_server_connection(
+    std::unique_ptr<SSL, SslDeleter> ssl,
+    std::vector<AuthServer> &auth_servers_vector) {
+    (void)ssl;
+    (void)auth_servers_vector;
+}
+
 int main(int argc, char const *argv[]) {
     (void)argv;
     (void)argc;
@@ -166,9 +180,6 @@ int main(int argc, char const *argv[]) {
 void listen_for_new_clients_ssl(const std::string &port,
                                 std::vector<UserSession> &users_vector) {
 
-    std::cout << "TODO: setup client listener";
-    (void)users_vector;
-
     // TODO: change paths to use config file
     auto cert_path = std::string("certs/client_cert.pem");
     auto key_path = std::string("certs/client_key.pem");
@@ -195,6 +206,14 @@ void listen_for_new_clients_ssl(const std::string &port,
 
     while (true) {
 
+        // We use raw pointer here, because we pass this BIO pointer to
+        // std::unique_ptr<SSL,SslDeleter> and deleter uses OpenSSL macro that
+        // correctly frees BIO passed to SSL structure.
+        //
+        // By using the raw pointer we don't get problems with library
+        // compatibility with unique_ptr and we eliminate the problem with
+        // automatic freeing of std::unique_ptr<BIO> when going out of scope at
+        // the end of loop iteration.
         auto *bio = BIO_new_dgram(sock, BIO_NOCLOSE);
 
         if (bio == nullptr) {
@@ -239,15 +258,151 @@ void listen_for_new_clients_ssl(const std::string &port,
 void listen_for_new_game_servers_ssl(
     const std::string &port, std::vector<GameServer> &game_servers_vector) {
 
-    std::cout << "TODO: setup server listener\n";
-    (void)port;
-    (void)game_servers_vector;
+    // TODO: change paths to use config file
+    auto cert_path = std::string("certs/client_cert.pem");
+    auto key_path = std::string("certs/client_key.pem");
+
+    auto dtls_ctx = std::unique_ptr<SSL_CTX, SslDeleter>(
+        setup_new_dtls_ctx(cert_path, key_path));
+
+    // Bind socket on which we listen
+    // We listen on exactly one port (like), so it needs to be outside of
+    // loop
+
+    auto sock = setup_dtls_listener_socket(port);
+
+    // Main listening loop
+    //
+    // For each separate connection we need to make these steps:
+    //  1. Create BIO object
+    //  2. Bind BIO object to listener socket
+    //  3. Create SSL object with aforementioned BIO
+    //  4. Accept new connection (it is blocking operation until we get new
+    //  connection)
+    //  5. Create new handler thread using the SSL object with accepted
+    //  connection
+
+    while (true) {
+
+        // We use raw pointer here, because we pass this BIO pointer to
+        // std::unique_ptr<SSL,SslDeleter> and deleter uses OpenSSL macro that
+        // correctly frees BIO passed to SSL structure.
+        //
+        // By using the raw pointer we don't get problems with library
+        // compatibility with unique_ptr and we eliminate the problem with
+        // automatic freeing of std::unique_ptr<BIO> when going out of scope at
+        // the end of loop iteration.
+        auto *bio = BIO_new_dgram(sock, BIO_NOCLOSE);
+
+        if (bio == nullptr) {
+            throw std::runtime_error(
+                "Could not create BIO object in client listener");
+        }
+
+        auto dtls_ssl =
+            std::unique_ptr<SSL, SslDeleter>(SSL_new(dtls_ctx.get()));
+        if (dtls_ssl == nullptr) {
+            throw std::runtime_error("Failed to create client listener SSL");
+        }
+
+        SSL_set_bio(dtls_ssl.get(), bio, bio);
+
+        // TODO: check if needed in mock
+        SSL_set_options(dtls_ssl.get(), SSL_OP_COOKIE_EXCHANGE);
+
+        if (SSL_accept(dtls_ssl.get()) < 1) {
+            std::cout << "Failed to accept client\n";
+            /*
+             * If the failure is due to a verification error we can get more
+             * information about it from SSL_get_verify_result().
+             */
+            if (SSL_get_verify_result(dtls_ssl.get()) != X509_V_OK) {
+                std::cout << "Verify error:"
+                          << "\n"
+                          << X509_verify_cert_error_string(
+                                 SSL_get_verify_result(dtls_ssl.get()))
+                          << "\n";
+            }
+        }
+
+        // Create handler thread and detach it
+        std::thread game_server_handler_thread(handle_game_server_connection,
+                                               std::move(dtls_ssl),
+                                               std::ref(game_servers_vector));
+        game_server_handler_thread.detach();
+    }
 }
 
 void listen_for_new_auth_servers_ssl(
     const std::string &port, std::vector<AuthServer> &auth_servers_vector) {
 
-    std::cout << "TODO: setup auth server listener\n";
-    (void)port;
-    (void)auth_servers_vector;
+    // TODO: change paths to use config file
+    auto cert_path = std::string("certs/client_cert.pem");
+    auto key_path = std::string("certs/client_key.pem");
+
+    auto tls_ctx = std::unique_ptr<SSL_CTX, SslDeleter>(
+        setup_new_tls_ctx(cert_path, key_path));
+
+    // Bind socket on which we listen
+    // We listen on exactly one port (like), so it needs to be outside of
+    // loop
+
+    auto sock = setup_tls_listener_socket(port);
+
+    // Main listening loop
+    //
+    // For each separate connection we need to make these steps:
+    //  1. Create BIO object
+    //  2. Bind BIO object to listener socket
+    //  3. Create SSL object with aforementioned BIO
+    //  4. Accept new connection (it is blocking operation until we get new
+    //  connection)
+    //  5. Create new handler thread using the SSL object with accepted
+    //  connection
+
+    while (true) {
+
+        // We use raw pointer here, because we pass this BIO pointer to
+        // std::unique_ptr<SSL,SslDeleter> and deleter uses OpenSSL macro that
+        // correctly frees BIO passed to SSL structure.
+        //
+        // By using the raw pointer we don't get problems with library
+        // compatibility with unique_ptr and we eliminate the problem with
+        // automatic freeing of std::unique_ptr<BIO> when going out of scope at
+        // the end of loop iteration.
+        auto *bio = BIO_new_socket(sock, BIO_NOCLOSE);
+
+        if (bio == nullptr) {
+            throw std::runtime_error(
+                "Could not create BIO object in client listener");
+        }
+
+        auto tls_ssl = std::unique_ptr<SSL, SslDeleter>(SSL_new(tls_ctx.get()));
+        if (tls_ssl == nullptr) {
+            throw std::runtime_error("Failed to create client listener SSL");
+        }
+
+        SSL_set_bio(tls_ssl.get(), bio, bio);
+
+        if (SSL_accept(tls_ssl.get()) < 1) {
+            std::cout << "Failed to accept client\n";
+            /*
+             * If the failure is due to a verification error we can get more
+             * information about it from SSL_get_verify_result().
+             */
+            if (SSL_get_verify_result(tls_ssl.get()) != X509_V_OK) {
+                std::cout << "Verify error:"
+                          << "\n"
+                          << X509_verify_cert_error_string(
+                                 SSL_get_verify_result(tls_ssl.get()))
+                          << "\n";
+            }
+        }
+
+        // Create handler thread and detach it
+        std::thread auth_server_handler_thread(handle_auth_server_connection,
+                                               std::move(tls_ssl),
+                                               std::ref(auth_servers_vector));
+        auth_server_handler_thread.detach();
+    }
 }
