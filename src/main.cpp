@@ -1,6 +1,8 @@
 #include "main.hpp"
+#include "proto/game_messages.pb.h"
 #include "ssl_deleter.h"
 #include "user_session.hpp"
+#include <array>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -125,23 +127,69 @@ int setup_tls_listener_socket(const std::string &port) {
 
 void handle_client_connection(
     std::unique_ptr<SSL, SslDeleter> ssl,
-    std::unordered_map<uint32_t, UserSession> &users_vector) {
+    std::unordered_map<uint32_t, UserSession> &users_map) {
     (void)ssl;
-    (void)users_vector;
+    (void)users_map;
+
+    const auto MAX_DTLS_RECORD_SIZE = 16384;
+
+    auto user_session = UserSession(std::move(ssl));
+
+    // Maximum DTLS record size is 16kB and single read can return only exactly
+    // one record.
+    auto buf = std::array<char, MAX_DTLS_RECORD_SIZE>();
+    size_t readbytes = 0;
+
+    while ((SSL_get_shutdown(ssl.get()) & SSL_RECEIVED_SHUTDOWN) == 0) {
+
+        while (true) {
+
+            if (SSL_read_ex(ssl.get(), buf.data(), sizeof(buf), &readbytes) >
+                0) {
+
+                game_messages::GameMessage in_message;
+                in_message.ParseFromArray(
+                    buf.data(),
+                    readbytes); // NOLINT(*-narrowing-conversions)
+
+                // It hurts me, but I can't do it any other way
+                if (in_message.has_client_update_state()) {
+                    if (user_session.user_ID == 0) {
+                        // TODO: send message about no authentication
+                    } else if (user_session.connected_game_server_ID != 0) {
+                        // TODO: send message about no connected game server
+                    } else {
+                        // user exists and is connected to game server => pass
+                        // the update to connected game server
+
+                        // Oh no, we need to refactor to mediator :(
+                        // send_message(in_message,
+                        // user_session.connected_game_server_ID)
+                    }
+
+                } else if (in_message.has_chat_message_request()) {
+
+                } else if (in_message.has_log_in_request()) {
+
+                } else if (in_message.has_join_world_request()) {
+                }
+            }
+        }
+    }
 }
 
 void handle_game_server_connection(
     std::unique_ptr<SSL, SslDeleter> ssl,
-    std::unordered_map<uint32_t, GameServer> &game_servers_vector) {
+    std::unordered_map<uint32_t, GameServer> &game_servers_map) {
     (void)ssl;
-    (void)game_servers_vector;
+    (void)game_servers_map;
 }
 
 void handle_auth_server_connection(
     std::unique_ptr<SSL, SslDeleter> ssl,
-    std::unordered_map<uint32_t, AuthServer> &auth_servers_vector) {
+    std::unordered_map<uint32_t, AuthServer> &auth_servers_map) {
     (void)ssl;
-    (void)auth_servers_vector;
+    (void)auth_servers_map;
 }
 
 int main(int argc, char const *argv[]) {
@@ -181,7 +229,7 @@ int main(int argc, char const *argv[]) {
 
 void listen_for_new_clients_ssl(
     const std::string &port,
-    std::unordered_map<uint32_t, UserSession> &users_vector) {
+    std::unordered_map<uint32_t, UserSession> &users_map) {
 
     // TODO: change paths to use config file
     auto cert_path = std::string("certs/client_cert.pem");
@@ -251,16 +299,15 @@ void listen_for_new_clients_ssl(
         }
 
         // Create handler thread and detach it
-        std::thread client_handler_thread(handle_client_connection,
-                                          std::move(dtls_ssl),
-                                          std::ref(users_vector));
+        std::thread client_handler_thread(
+            handle_client_connection, std::move(dtls_ssl), std::ref(users_map));
         client_handler_thread.detach();
     }
 }
 
 void listen_for_new_game_servers_ssl(
     const std::string &port,
-    std::unordered_map<uint32_t, GameServer> &game_servers_vector) {
+    std::unordered_map<uint32_t, GameServer> &game_servers_map) {
 
     // TODO: change paths to use config file
     auto cert_path = std::string("certs/client_cert.pem");
@@ -332,14 +379,14 @@ void listen_for_new_game_servers_ssl(
         // Create handler thread and detach it
         std::thread game_server_handler_thread(handle_game_server_connection,
                                                std::move(dtls_ssl),
-                                               std::ref(game_servers_vector));
+                                               std::ref(game_servers_map));
         game_server_handler_thread.detach();
     }
 }
 
 void listen_for_new_auth_servers_ssl(
     const std::string &port,
-    std::unordered_map<uint32_t, AuthServer> &auth_servers_vector) {
+    std::unordered_map<uint32_t, AuthServer> &auth_servers_map) {
 
     // TODO: change paths to use config file
     auto cert_path = std::string("certs/client_cert.pem");
@@ -407,7 +454,7 @@ void listen_for_new_auth_servers_ssl(
         // Create handler thread and detach it
         std::thread auth_server_handler_thread(handle_auth_server_connection,
                                                std::move(tls_ssl),
-                                               std::ref(auth_servers_vector));
+                                               std::ref(auth_servers_map));
         auth_server_handler_thread.detach();
     }
 }

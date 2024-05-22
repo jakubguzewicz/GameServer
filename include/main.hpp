@@ -9,10 +9,10 @@ int main(int argc, char const *argv[]);
 
 void listen_for_new_clients_ssl(
     const std::string &port,
-    std::unordered_map<uint32_t, UserSession> &users_vector);
+    std::unordered_map<uint32_t, UserSession> &users_map);
 void listen_for_new_game_servers_ssl(
     const std::string &port,
-    std::unordered_map<uint32_t, GameServer> &game_servers_vector);
+    std::unordered_map<uint32_t, GameServer> &game_servers_map);
 void listen_for_new_auth_servers_ssl(
     const std::string &port,
-    std::unordered_map<uint32_t, AuthServer> &auth_servers_vector);
+    std::unordered_map<uint32_t, AuthServer> &auth_servers_map);
