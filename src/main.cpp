@@ -1,5 +1,6 @@
 #include "main.hpp"
 #include "ssl_deleter.h"
+#include "user_session.hpp"
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -122,22 +123,23 @@ int setup_tls_listener_socket(const std::string &port) {
     return sock;
 }
 
-void handle_client_connection(std::unique_ptr<SSL, SslDeleter> ssl,
-                              std::vector<UserSession> &users_vector) {
+void handle_client_connection(
+    std::unique_ptr<SSL, SslDeleter> ssl,
+    std::unordered_map<uint32_t, UserSession> &users_vector) {
     (void)ssl;
     (void)users_vector;
 }
 
 void handle_game_server_connection(
     std::unique_ptr<SSL, SslDeleter> ssl,
-    std::vector<GameServer> &game_servers_vector) {
+    std::unordered_map<uint32_t, GameServer> &game_servers_vector) {
     (void)ssl;
     (void)game_servers_vector;
 }
 
 void handle_auth_server_connection(
     std::unique_ptr<SSL, SslDeleter> ssl,
-    std::vector<AuthServer> &auth_servers_vector) {
+    std::unordered_map<uint32_t, AuthServer> &auth_servers_vector) {
     (void)ssl;
     (void)auth_servers_vector;
 }
@@ -147,9 +149,9 @@ int main(int argc, char const *argv[]) {
     (void)argc;
 
     // Setup empty data structures
-    std::vector<GameServer> game_servers;
-    std::vector<AuthServer> auth_servers;
-    std::vector<UserSession> connected_users;
+    std::unordered_map<uint32_t, GameServer> game_servers;
+    std::unordered_map<uint32_t, AuthServer> auth_servers;
+    std::unordered_map<uint32_t, UserSession> connected_users;
 
     // Setup listeners
     std::cout << "Hello there!\n";
@@ -177,8 +179,9 @@ int main(int argc, char const *argv[]) {
                  "listener threads ended execution)\n";
 }
 
-void listen_for_new_clients_ssl(const std::string &port,
-                                std::vector<UserSession> &users_vector) {
+void listen_for_new_clients_ssl(
+    const std::string &port,
+    std::unordered_map<uint32_t, UserSession> &users_vector) {
 
     // TODO: change paths to use config file
     auto cert_path = std::string("certs/client_cert.pem");
@@ -256,7 +259,8 @@ void listen_for_new_clients_ssl(const std::string &port,
 }
 
 void listen_for_new_game_servers_ssl(
-    const std::string &port, std::vector<GameServer> &game_servers_vector) {
+    const std::string &port,
+    std::unordered_map<uint32_t, GameServer> &game_servers_vector) {
 
     // TODO: change paths to use config file
     auto cert_path = std::string("certs/client_cert.pem");
@@ -334,7 +338,8 @@ void listen_for_new_game_servers_ssl(
 }
 
 void listen_for_new_auth_servers_ssl(
-    const std::string &port, std::vector<AuthServer> &auth_servers_vector) {
+    const std::string &port,
+    std::unordered_map<uint32_t, AuthServer> &auth_servers_vector) {
 
     // TODO: change paths to use config file
     auto cert_path = std::string("certs/client_cert.pem");
