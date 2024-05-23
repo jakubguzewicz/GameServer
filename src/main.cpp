@@ -151,6 +151,20 @@ void handle_client_connection(std::unique_ptr<SSL, SslDeleter> ssl,
                     buf.data(),
                     readbytes); // NOLINT(*-narrowing-conversions)
 
+                // It hurts less than if/else chain, but it's still ugly.
+                //
+                // Also, why wasn't the case() documented in any way in oneof
+                // nested messages? only in enum, while it also is implemented
+                // here?
+                switch (in_message.message_type_case()) {
+                case game_messages::GameMessage::kLogInRequest: {
+                    (void)in_message;
+                    break;
+                }
+                default: {
+                    break;
+                }
+                }
                 // It hurts me, but I can't do it any other way
                 if (in_message.has_client_update_state()) {
                     if (user_session.user_ID == 0) {
@@ -172,6 +186,7 @@ void handle_client_connection(std::unique_ptr<SSL, SslDeleter> ssl,
 
                 } else if (in_message.has_join_world_request()) {
                 }
+                in_message.message_type_case() GameMessage::messa
             }
         }
     }
