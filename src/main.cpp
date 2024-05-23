@@ -186,7 +186,6 @@ void handle_client_connection(std::unique_ptr<SSL, SslDeleter> ssl,
 
                 } else if (in_message.has_join_world_request()) {
                 }
-                in_message.message_type_case() GameMessage::messa
             }
         }
     }
