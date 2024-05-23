@@ -126,13 +126,9 @@ int setup_tls_listener_socket(const std::string &port) {
     return sock;
 }
 
-void handle_client_connection(
-    std::unique_ptr<SSL, SslDeleter> ssl,
-    std::unordered_map<uint32_t, UserSession> &users_map,
-    SslMessenger &ssl_messenger) {
+void handle_client_connection(std::unique_ptr<SSL, SslDeleter> ssl,
+                              SslMessenger &ssl_messenger) {
     (void)ssl;
-    (void)users_map;
-    (void)ssl_messenger;
 
     const auto MAX_DTLS_RECORD_SIZE = 16384;
 
@@ -207,7 +203,8 @@ int main(int argc, char const *argv[]) {
     // Setup mediator/messenger
 
     auto ssl_messenger =
-        SslMessenger(game_servers, auth_servers, connected_users);
+        SslMessenger(std::move(game_servers), std::move(auth_servers),
+                     std::move(connected_users));
 
     // Setup listeners
 
@@ -216,9 +213,9 @@ int main(int argc, char const *argv[]) {
     std::string auth_server_port = "4721";
     std::string game_server_port = "4722";
 
-    std::thread clients_listener_thread(
-        listen_for_new_clients_ssl, std::cref(client_port),
-        std::ref(connected_users), std::ref(ssl_messenger));
+    std::thread clients_listener_thread(listen_for_new_clients_ssl,
+                                        std::cref(client_port),
+                                        std::ref(ssl_messenger));
 
     std::thread auth_servers_listener_thread(listen_for_new_auth_servers_ssl,
                                              std::cref(auth_server_port),
@@ -235,10 +232,8 @@ int main(int argc, char const *argv[]) {
                  "listener threads ended execution)\n";
 }
 
-void listen_for_new_clients_ssl(
-    const std::string &port,
-    std::unordered_map<uint32_t, UserSession> &users_map,
-    SslMessenger &ssl_messenger) {
+void listen_for_new_clients_ssl(const std::string &port,
+                                SslMessenger &ssl_messenger) {
 
     // TODO: change paths to use config file
     auto cert_path = std::string("certs/client_cert.pem");
@@ -308,9 +303,9 @@ void listen_for_new_clients_ssl(
         }
 
         // Create handler thread and detach it
-        std::thread client_handler_thread(
-            handle_client_connection, std::move(dtls_ssl), std::ref(users_map),
-            std::ref(ssl_messenger));
+        std::thread client_handler_thread(handle_client_connection,
+                                          std::move(dtls_ssl),
+                                          std::ref(ssl_messenger));
         client_handler_thread.detach();
     }
 }
