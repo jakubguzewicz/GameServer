@@ -1,6 +1,7 @@
 #include "main.hpp"
 #include "proto/game_messages.pb.h"
 #include "ssl_deleter.h"
+#include "ssl_messenger.hpp"
 #include "user_session.hpp"
 #include <array>
 #include <functional>
@@ -127,9 +128,11 @@ int setup_tls_listener_socket(const std::string &port) {
 
 void handle_client_connection(
     std::unique_ptr<SSL, SslDeleter> ssl,
-    std::unordered_map<uint32_t, UserSession> &users_map) {
+    std::unordered_map<uint32_t, UserSession> &users_map,
+    SslMessenger &ssl_messenger) {
     (void)ssl;
     (void)users_map;
+    (void)ssl_messenger;
 
     const auto MAX_DTLS_RECORD_SIZE = 16384;
 
@@ -162,9 +165,9 @@ void handle_client_connection(
                         // user exists and is connected to game server => pass
                         // the update to connected game server
 
-                        // Oh no, we need to refactor to mediator :(
-                        // send_message(in_message,
-                        // user_session.connected_game_server_ID)
+                        ssl_messenger.send_message(
+                            in_message.client_update_state(),
+                            user_session.connected_game_server_ID);
                     }
 
                 } else if (in_message.has_chat_message_request()) {
@@ -201,17 +204,21 @@ int main(int argc, char const *argv[]) {
     std::unordered_map<uint32_t, AuthServer> auth_servers;
     std::unordered_map<uint32_t, UserSession> connected_users;
 
+    // Setup mediator/messenger
+
+    auto ssl_messenger =
+        SslMessenger(game_servers, auth_servers, connected_users);
+
     // Setup listeners
-    std::cout << "Hello there!\n";
 
     // TODO: change to read from config file
     std::string client_port = "4720";
     std::string auth_server_port = "4721";
     std::string game_server_port = "4722";
 
-    std::thread clients_listener_thread(listen_for_new_clients_ssl,
-                                        std::cref(client_port),
-                                        std::ref(connected_users));
+    std::thread clients_listener_thread(
+        listen_for_new_clients_ssl, std::cref(client_port),
+        std::ref(connected_users), std::ref(ssl_messenger));
 
     std::thread auth_servers_listener_thread(listen_for_new_auth_servers_ssl,
                                              std::cref(auth_server_port),
@@ -223,13 +230,15 @@ int main(int argc, char const *argv[]) {
 
     clients_listener_thread.join();
     auth_servers_listener_thread.join();
+    game_servers_listener_thread.join();
     std::cout << "Something went very, very, wrong if you reached here (all "
                  "listener threads ended execution)\n";
 }
 
 void listen_for_new_clients_ssl(
     const std::string &port,
-    std::unordered_map<uint32_t, UserSession> &users_map) {
+    std::unordered_map<uint32_t, UserSession> &users_map,
+    SslMessenger &ssl_messenger) {
 
     // TODO: change paths to use config file
     auto cert_path = std::string("certs/client_cert.pem");
@@ -300,7 +309,8 @@ void listen_for_new_clients_ssl(
 
         // Create handler thread and detach it
         std::thread client_handler_thread(
-            handle_client_connection, std::move(dtls_ssl), std::ref(users_map));
+            handle_client_connection, std::move(dtls_ssl), std::ref(users_map),
+            std::ref(ssl_messenger));
         client_handler_thread.detach();
     }
 }

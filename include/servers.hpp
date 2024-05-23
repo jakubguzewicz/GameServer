@@ -3,6 +3,8 @@
 #include <user_session.hpp>
 #include <vector>
 
+#pragma once
+
 class AuthServer {
 
   public:
@@ -10,8 +12,13 @@ class AuthServer {
 };
 
 class GameServer {
-
   public:
     std::unique_ptr<SSL, SslDeleter> ssl;
     std::vector<UserSession> connectedUsers;
+
+    // GameServer(const GameServer &) = delete;
+    // GameServer(GameServer &&) = delete;
+    // GameServer &operator=(const GameServer &) = delete;
+    // GameServer &operator=(GameServer &&) = delete;
+    // ~GameServer() = default;
 };
