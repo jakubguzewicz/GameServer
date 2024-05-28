@@ -1,12 +1,27 @@
 #include "ssl_messenger.hpp"
 #include "proto/game_messages.pb.h"
 #include "servers.hpp"
+#include "user_session.hpp"
+#include <cstdint>
+#include <memory>
+#include <utility>
+
+void SslMessenger::add_to_login_queue_map(uint32_t session_id,
+                                          const std::string &username,
+                                          UserSession &user_session) {
+    login_queue_map.insert({{username, session_id}, user_session});
+}
 
 game_messages::GameMessage
 SslMessenger::send_message(game_messages::LogInRequest message,
-                           const SSL *ssl_to_be_added) const {
-    (void)ssl_to_be_added;
+                           UserSession &user_session_to_be_added) {
+    (void)user_session_to_be_added;
     (void)message;
+
+    this->add_to_login_queue_map(this->_session_id_counter++,
+                                 message.username(), user_session_to_be_added);
+
+    // Add sending message
     return {};
 }
 game_messages::GameMessage

@@ -127,7 +127,7 @@ int setup_tls_listener_socket(const std::string &port) {
     return sock;
 }
 
-void handle_client_connection(std::unique_ptr<SSL, SslDeleter> ssl,
+void handle_client_connection(std::shared_ptr<SSL> ssl,
                               SslMessenger &ssl_messenger) {
 
     const auto MAX_DTLS_RECORD_SIZE = 16384;
@@ -138,11 +138,11 @@ void handle_client_connection(std::unique_ptr<SSL, SslDeleter> ssl,
     // one record.
     auto buf = std::array<char, MAX_DTLS_RECORD_SIZE>();
     size_t readbytes = 0;
-    auto *tmp_ssl = user_session.ssl.get();
-    (void)tmp_ssl;
 
-    while ((SSL_get_shutdown(user_session.ssl.get()) & SSL_RECEIVED_SHUTDOWN) ==
-           0) {
+    while (SSL_get_shutdown(user_session.ssl.get()) == 0) {
+
+        // TODO: Have to check how the library behaves if the destructor with
+        // shutdown is called here
 
         if (SSL_read_ex(user_session.ssl.get(), buf.data(), sizeof(buf),
                         &readbytes) > 0) {
@@ -196,7 +196,7 @@ void handle_client_connection(std::unique_ptr<SSL, SslDeleter> ssl,
                 // Need to refactor, we need secondary Map<{user_id,
                 // session_id}, SSL>
                 ssl_messenger.send_message(in_message.log_in_request(),
-                                           user_session.ssl.get());
+                                           user_session);
                 break;
             }
 

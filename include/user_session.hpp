@@ -6,11 +6,12 @@
 
 class UserSession {
   public:
-    std::unique_ptr<SSL, SslDeleter> ssl{};
+    std::shared_ptr<SSL> ssl{};
     uint32_t user_ID{};
     uint32_t connected_game_server_ID{};
-    explicit UserSession(std::unique_ptr<SSL, SslDeleter> ssl)
-        : ssl(std::move(ssl)) {}
+    explicit UserSession(std::shared_ptr<SSL> ssl) {
+        this->ssl = std::shared_ptr<SSL>(std::move(ssl));
+    }
 
     // UserSession(const UserSession &) = delete;
     // UserSession(UserSession &&) = delete;

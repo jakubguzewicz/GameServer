@@ -1,41 +1,35 @@
 #include "proto/game_messages.pb.h"
 #include "servers.hpp"
 #include "user_session.hpp"
+#include <boost/functional/hash.hpp>
 #include <cstdint>
+#include <memory>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 #pragma once
 
-namespace std {
-template <> class hash<pair<uint32_t, uint32_t>> {
-  public:
-    uint64_t operator()(const pair<uint32_t, uint32_t> pair) const {
-        // std::hash<int> is already int's value, so no reason to make it more
-        // difficult as we can hold whole information in 64 bits.
-        return (uint64_t)pair.first +
-               ((uint64_t)pair.second << 32); // NOLINT(*magic-numbers);
-    }
-};
-} // namespace std
-
 class SslMessenger {
 
   private:
+    uint32_t _session_id_counter = 0;
     std::unordered_map<uint32_t, GameServer> game_servers{};
     std::unordered_map<uint32_t, AuthServer> auth_servers{};
     std::unordered_map<uint32_t, UserSession> user_sessions{};
 
-    std::unordered_map<std::pair<uint32_t, uint32_t>, UserSession>
+    std::unordered_map<std::pair<std::string, uint32_t>, UserSession,
+                       boost::hash<std::pair<std::string, uint32_t>>>
         login_queue_map{};
 
   public:
-    SslMessenger(std::unordered_map<uint32_t, GameServer> game_servers,
-                 std::unordered_map<uint32_t, AuthServer> auth_servers,
-                 std::unordered_map<uint32_t, UserSession> user_sessions,
-                 std::unordered_map<std::pair<uint32_t, uint32_t>, UserSession>
-                     login_queue_map)
+    SslMessenger(
+        std::unordered_map<uint32_t, GameServer> game_servers,
+        std::unordered_map<uint32_t, AuthServer> auth_servers,
+        std::unordered_map<uint32_t, UserSession> user_sessions,
+        std::unordered_map<std::pair<std::string, uint32_t>, UserSession,
+                           boost::hash<std::pair<std::string, uint32_t>>>
+            login_queue_map)
         : game_servers(std::move(game_servers)),
           auth_servers(std::move(auth_servers)),
           user_sessions(std::move(user_sessions)),
@@ -43,8 +37,13 @@ class SslMessenger {
 
     SslMessenger() = default;
 
-    game_messages::GameMessage send_message(game_messages::LogInRequest message,
-                                            const SSL *ssl_to_be_added) const;
+    void add_to_login_queue_map(uint32_t session_id,
+                                const std::string &username,
+                                UserSession &user_session);
+
+    game_messages::GameMessage
+    send_message(game_messages::LogInRequest message,
+                 UserSession &user_session_to_be_added);
     game_messages::GameMessage
     send_message(game_messages::LogInResponse message) const;
     game_messages::GameMessage
