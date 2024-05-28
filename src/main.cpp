@@ -4,6 +4,7 @@
 #include "ssl_messenger.hpp"
 #include "user_session.hpp"
 #include <array>
+#include <cstdint>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -128,7 +129,6 @@ int setup_tls_listener_socket(const std::string &port) {
 
 void handle_client_connection(std::unique_ptr<SSL, SslDeleter> ssl,
                               SslMessenger &ssl_messenger) {
-    (void)ssl;
 
     const auto MAX_DTLS_RECORD_SIZE = 16384;
 
@@ -138,87 +138,107 @@ void handle_client_connection(std::unique_ptr<SSL, SslDeleter> ssl,
     // one record.
     auto buf = std::array<char, MAX_DTLS_RECORD_SIZE>();
     size_t readbytes = 0;
+    auto *tmp_ssl = user_session.ssl.get();
+    (void)tmp_ssl;
 
-    while ((SSL_get_shutdown(ssl.get()) & SSL_RECEIVED_SHUTDOWN) == 0) {
+    while ((SSL_get_shutdown(user_session.ssl.get()) & SSL_RECEIVED_SHUTDOWN) ==
+           0) {
 
-        while (true) {
+        if (SSL_read_ex(user_session.ssl.get(), buf.data(), sizeof(buf),
+                        &readbytes) > 0) {
 
-            if (SSL_read_ex(ssl.get(), buf.data(), sizeof(buf), &readbytes) >
-                0) {
+            game_messages::GameMessage in_message;
+            in_message.ParseFromArray(
+                buf.data(),
+                readbytes); // NOLINT(*-narrowing-conversions)
 
-                game_messages::GameMessage in_message;
-                in_message.ParseFromArray(
-                    buf.data(),
-                    readbytes); // NOLINT(*-narrowing-conversions)
+            // It hurts less than if/else chain, but it's still ugly.
+            //
+            // Also, why wasn't the case() documented in any way in oneof
+            // nested messages? only in enum, while it also is implemented
+            // here?
+            switch (in_message.message_type_case()) {
 
-                // It hurts less than if/else chain, but it's still ugly.
-                //
-                // Also, why wasn't the case() documented in any way in oneof
-                // nested messages? only in enum, while it also is implemented
-                // here?
-                switch (in_message.message_type_case()) {
-                case game_messages::GameMessage::kLogInRequest: {
-                    (void)in_message;
-                    break;
+            case game_messages::GameMessage::kClientUpdateState: {
+                if (user_session.user_ID == 0) {
+                    // TODO: send message about no authentication
+                } else if (user_session.connected_game_server_ID != 0) {
+                    // TODO: send message about no connected game server
+                } else {
+                    // user exists and is connected to game server => pass
+                    // the update to connected game server
+
+                    ssl_messenger.send_message(
+                        in_message.client_update_state(),
+                        user_session.connected_game_server_ID);
                 }
-                default: {
-                    break;
+                break;
+            }
+
+            case game_messages::GameMessage::kChatMessageRequest: {
+                if (user_session.user_ID == 0) {
+                    // TODO: send message about no authentication
+                } else if (user_session.connected_game_server_ID != 0) {
+                    // TODO: send message about no connected game server
+                } else {
+                    // user exists and is connected to game server => pass
+                    // the update to connected game server
+
+                    ssl_messenger.send_message(
+                        in_message.chat_message_request(),
+                        user_session.connected_game_server_ID);
                 }
-                }
-                // It hurts me, but I can't do it any other way
-                if (in_message.has_client_update_state()) {
-                    if (user_session.user_ID == 0) {
-                        // TODO: send message about no authentication
-                    } else if (user_session.connected_game_server_ID != 0) {
-                        // TODO: send message about no connected game server
-                    } else {
-                        // user exists and is connected to game server => pass
-                        // the update to connected game server
+                break;
+            }
 
-                        ssl_messenger.send_message(
-                            in_message.client_update_state(),
-                            user_session.connected_game_server_ID);
-                    }
+            case game_messages::GameMessage::kLogInRequest: {
 
-                } else if (in_message.has_chat_message_request()) {
+                // Need to refactor, we need secondary Map<{user_id,
+                // session_id}, SSL>
+                ssl_messenger.send_message(in_message.log_in_request(),
+                                           user_session.ssl.get());
+                break;
+            }
 
-                } else if (in_message.has_log_in_request()) {
+            case game_messages::GameMessage::kJoinWorldRequest: {
+                ssl_messenger.send_message(in_message.join_world_request());
+                break;
+            }
 
-                } else if (in_message.has_join_world_request()) {
-                }
+            default: {
+                // TODO: implement wrong message type handling
+                break;
+            }
             }
         }
     }
 }
 
-void handle_game_server_connection(
-    std::unique_ptr<SSL, SslDeleter> ssl,
-    std::unordered_map<uint32_t, GameServer> &game_servers_map) {
+void handle_game_server_connection(std::unique_ptr<SSL, SslDeleter> ssl,
+                                   SslMessenger &ssl_messenger) {
     (void)ssl;
-    (void)game_servers_map;
+    (void)ssl_messenger;
 }
 
-void handle_auth_server_connection(
-    std::unique_ptr<SSL, SslDeleter> ssl,
-    std::unordered_map<uint32_t, AuthServer> &auth_servers_map) {
+void handle_auth_server_connection(std::unique_ptr<SSL, SslDeleter> ssl,
+                                   SslMessenger &ssl_messenger) {
     (void)ssl;
-    (void)auth_servers_map;
+    (void)ssl_messenger;
 }
 
 int main(int argc, char const *argv[]) {
     (void)argv;
     (void)argc;
 
+    // Unneeded for now
     // Setup empty data structures
-    std::unordered_map<uint32_t, GameServer> game_servers;
-    std::unordered_map<uint32_t, AuthServer> auth_servers;
-    std::unordered_map<uint32_t, UserSession> connected_users;
+    // std::unordered_map<uint32_t, GameServer> game_servers;
+    // std::unordered_map<uint32_t, AuthServer> auth_servers;
+    // std::unordered_map<uint32_t, UserSession> connected_users;
 
     // Setup mediator/messenger
 
-    auto ssl_messenger =
-        SslMessenger(std::move(game_servers), std::move(auth_servers),
-                     std::move(connected_users));
+    auto ssl_messenger = SslMessenger();
 
     // Setup listeners
 
@@ -233,11 +253,11 @@ int main(int argc, char const *argv[]) {
 
     std::thread auth_servers_listener_thread(listen_for_new_auth_servers_ssl,
                                              std::cref(auth_server_port),
-                                             std::ref(auth_servers));
+                                             std::ref(ssl_messenger));
 
     std::thread game_servers_listener_thread(listen_for_new_game_servers_ssl,
                                              std::cref(game_server_port),
-                                             std::ref(game_servers));
+                                             std::ref(ssl_messenger));
 
     clients_listener_thread.join();
     auth_servers_listener_thread.join();
@@ -276,13 +296,13 @@ void listen_for_new_clients_ssl(const std::string &port,
     while (true) {
 
         // We use raw pointer here, because we pass this BIO pointer to
-        // std::unique_ptr<SSL,SslDeleter> and deleter uses OpenSSL macro that
-        // correctly frees BIO passed to SSL structure.
+        // std::unique_ptr<SSL,SslDeleter> and deleter uses OpenSSL macro
+        // that correctly frees BIO passed to SSL structure.
         //
         // By using the raw pointer we don't get problems with library
         // compatibility with unique_ptr and we eliminate the problem with
-        // automatic freeing of std::unique_ptr<BIO> when going out of scope at
-        // the end of loop iteration.
+        // automatic freeing of std::unique_ptr<BIO> when going out of scope
+        // at the end of loop iteration.
         auto *bio = BIO_new_dgram(sock, BIO_NOCLOSE);
 
         if (bio == nullptr) {
@@ -324,9 +344,8 @@ void listen_for_new_clients_ssl(const std::string &port,
     }
 }
 
-void listen_for_new_game_servers_ssl(
-    const std::string &port,
-    std::unordered_map<uint32_t, GameServer> &game_servers_map) {
+void listen_for_new_game_servers_ssl(const std::string &port,
+                                     SslMessenger &ssl_messenger) {
 
     // TODO: change paths to use config file
     auto cert_path = std::string("certs/client_cert.pem");
@@ -355,13 +374,13 @@ void listen_for_new_game_servers_ssl(
     while (true) {
 
         // We use raw pointer here, because we pass this BIO pointer to
-        // std::unique_ptr<SSL,SslDeleter> and deleter uses OpenSSL macro that
-        // correctly frees BIO passed to SSL structure.
+        // std::unique_ptr<SSL,SslDeleter> and deleter uses OpenSSL macro
+        // that correctly frees BIO passed to SSL structure.
         //
         // By using the raw pointer we don't get problems with library
         // compatibility with unique_ptr and we eliminate the problem with
-        // automatic freeing of std::unique_ptr<BIO> when going out of scope at
-        // the end of loop iteration.
+        // automatic freeing of std::unique_ptr<BIO> when going out of scope
+        // at the end of loop iteration.
         auto *bio = BIO_new_dgram(sock, BIO_NOCLOSE);
 
         if (bio == nullptr) {
@@ -398,14 +417,13 @@ void listen_for_new_game_servers_ssl(
         // Create handler thread and detach it
         std::thread game_server_handler_thread(handle_game_server_connection,
                                                std::move(dtls_ssl),
-                                               std::ref(game_servers_map));
+                                               std::ref(ssl_messenger));
         game_server_handler_thread.detach();
     }
 }
 
-void listen_for_new_auth_servers_ssl(
-    const std::string &port,
-    std::unordered_map<uint32_t, AuthServer> &auth_servers_map) {
+void listen_for_new_auth_servers_ssl(const std::string &port,
+                                     SslMessenger &ssl_messenger) {
 
     // TODO: change paths to use config file
     auto cert_path = std::string("certs/client_cert.pem");
@@ -434,13 +452,13 @@ void listen_for_new_auth_servers_ssl(
     while (true) {
 
         // We use raw pointer here, because we pass this BIO pointer to
-        // std::unique_ptr<SSL,SslDeleter> and deleter uses OpenSSL macro that
-        // correctly frees BIO passed to SSL structure.
+        // std::unique_ptr<SSL,SslDeleter> and deleter uses OpenSSL macro
+        // that correctly frees BIO passed to SSL structure.
         //
         // By using the raw pointer we don't get problems with library
         // compatibility with unique_ptr and we eliminate the problem with
-        // automatic freeing of std::unique_ptr<BIO> when going out of scope at
-        // the end of loop iteration.
+        // automatic freeing of std::unique_ptr<BIO> when going out of scope
+        // at the end of loop iteration.
         auto *bio = BIO_new_socket(sock, BIO_NOCLOSE);
 
         if (bio == nullptr) {
@@ -473,7 +491,7 @@ void listen_for_new_auth_servers_ssl(
         // Create handler thread and detach it
         std::thread auth_server_handler_thread(handle_auth_server_connection,
                                                std::move(tls_ssl),
-                                               std::ref(auth_servers_map));
+                                               std::ref(ssl_messenger));
         auth_server_handler_thread.detach();
     }
 }
