@@ -20,6 +20,13 @@ void SslMessenger::add_to_login_queue_map(uint32_t session_id,
     login_queue_map.insert({{username, session_id}, user_session});
 }
 
+void SslMessenger::send_message(const game_messages::GameMessage &message,
+                                SSL &ssl) {
+    auto message_string = message.SerializeAsString();
+    SSL_write(&ssl, message_string.data(),
+              message_string.size()); // NOLINT(*-narrowing-conversions)
+}
+
 game_messages::GameMessage
 SslMessenger::send_message(game_messages::LogInRequest *message,
                            UserSession &user_session_to_be_added) {

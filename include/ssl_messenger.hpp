@@ -29,7 +29,8 @@ class SslMessenger {
                        boost::hash<std::pair<std::string, uint32_t>>>
         login_queue_map{};
 
-    void send_message(game_messages::GameMessage message, SSL &ssl);
+    static void send_message(const game_messages::GameMessage &message,
+                             SSL &ssl);
 
   public:
     SslMessenger(
