@@ -1,3 +1,5 @@
+#include <functional>
+#include <memory>
 #include <openssl/ssl.h>
 #include <ssl_deleter.h>
 #include <user_session.hpp>
@@ -8,13 +10,13 @@
 class AuthServer {
 
   public:
-    std::unique_ptr<SSL, SslDeleter> ssl;
+    std::shared_ptr<SSL> ssl;
 };
 
 class GameServer {
   public:
-    std::unique_ptr<SSL, SslDeleter> ssl;
-    std::vector<UserSession> connectedUsers;
+    std::shared_ptr<SSL> ssl;
+    std::vector<std::reference_wrapper<UserSession>> connectedUsers;
 
     // GameServer(const GameServer &) = delete;
     // GameServer(GameServer &&) = delete;

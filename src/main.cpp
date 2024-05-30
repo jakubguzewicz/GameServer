@@ -141,9 +141,6 @@ void handle_client_connection(std::shared_ptr<SSL> ssl,
 
     while (SSL_get_shutdown(user_session.ssl.get()) == 0) {
 
-        // TODO: Have to check how the library behaves if the destructor with
-        // shutdown is called here
-
         if (SSL_read_ex(user_session.ssl.get(), buf.data(), sizeof(buf),
                         &readbytes) > 0) {
 
@@ -195,7 +192,7 @@ void handle_client_connection(std::shared_ptr<SSL> ssl,
 
                 // Need to refactor, we need secondary Map<{user_id,
                 // session_id}, SSL>
-                ssl_messenger.send_message(in_message.log_in_request(),
+                ssl_messenger.send_message(in_message.mutable_log_in_request(),
                                            user_session);
                 break;
             }

@@ -4,6 +4,7 @@
 #include <boost/functional/hash.hpp>
 #include <cstdint>
 #include <memory>
+#include <shared_mutex>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -12,22 +13,30 @@
 
 class SslMessenger {
 
-  private:
-    uint32_t _session_id_counter = 0;
-    std::unordered_map<uint32_t, GameServer> game_servers{};
-    std::unordered_map<uint32_t, AuthServer> auth_servers{};
-    std::unordered_map<uint32_t, UserSession> user_sessions{};
+    using mutex_type = std::shared_timed_mutex;
 
-    std::unordered_map<std::pair<std::string, uint32_t>, UserSession,
+  private:
+    mutex_type _auth_mutex;
+    mutex_type _game_mutex;
+    mutex_type _user_mutex;
+    mutex_type _login_mutex;
+    uint32_t _session_id_counter = 0;
+    std::unordered_map<uint32_t, GameServer &> game_servers{};
+    std::unordered_map<uint32_t, AuthServer &> auth_servers{};
+    std::unordered_map<uint32_t, UserSession &> user_sessions{};
+
+    std::unordered_map<std::pair<std::string, uint32_t>, UserSession &,
                        boost::hash<std::pair<std::string, uint32_t>>>
         login_queue_map{};
 
+    void send_message(game_messages::GameMessage message, SSL &ssl);
+
   public:
     SslMessenger(
-        std::unordered_map<uint32_t, GameServer> game_servers,
-        std::unordered_map<uint32_t, AuthServer> auth_servers,
-        std::unordered_map<uint32_t, UserSession> user_sessions,
-        std::unordered_map<std::pair<std::string, uint32_t>, UserSession,
+        std::unordered_map<uint32_t, GameServer &> game_servers,
+        std::unordered_map<uint32_t, AuthServer &> auth_servers,
+        std::unordered_map<uint32_t, UserSession &> user_sessions,
+        std::unordered_map<std::pair<std::string, uint32_t>, UserSession &,
                            boost::hash<std::pair<std::string, uint32_t>>>
             login_queue_map)
         : game_servers(std::move(game_servers)),
@@ -42,10 +51,10 @@ class SslMessenger {
                                 UserSession &user_session);
 
     game_messages::GameMessage
-    send_message(game_messages::LogInRequest message,
+    send_message(game_messages::LogInRequest *message,
                  UserSession &user_session_to_be_added);
     game_messages::GameMessage
-    send_message(game_messages::LogInResponse message) const;
+    send_message(game_messages::LogInResponse &message);
     game_messages::GameMessage
     send_message(game_messages::JoinWorldRequest message) const;
     game_messages::GameMessage
