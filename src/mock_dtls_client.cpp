@@ -1,5 +1,9 @@
 #include "mock_dtls_client.hpp"
+#include "proto/game_messages.pb.h"
+#include <cstddef>
 #include <iostream>
+#include <openssl/ssl.h>
+#include <ostream>
 #include <string>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -7,13 +11,16 @@
 
 int main(int argc, char const *argv[]) {
 
-    if (argc != 3) {
-        std::cout << "Bad arguments: hostname, port" << std::endl;
+    if (argc != 5) {
+        std::cout << "Bad arguments: hostname, port, username, password"
+                  << std::endl;
         return 1;
     }
 
     std::vector<char> hostname(argv[1], argv[1] + strlen(argv[1]) + 1);
     std::vector<char> port(argv[2], argv[2] + strlen(argv[2]) + 1);
+    std::string username(argv[3]);
+    std::string password(argv[4]);
 
     auto dtls_ctx = SSL_CTX_new(DTLS_client_method());
     if (dtls_ctx == NULL) {
@@ -104,6 +111,8 @@ int main(int argc, char const *argv[]) {
 
     // Now let's send something
     // init objects
+
+    /*
     game_messages::SampleString out_message;
     game_messages::SampleString in_message;
     std::string in_message_string;
@@ -135,6 +144,67 @@ int main(int argc, char const *argv[]) {
             std::cout << "Didn't read anything!" << std::endl;
         }
         sleep(1);
+    }
+    */
+    auto login_message = game_messages::GameMessage();
+    auto chat_message = game_messages::GameMessage();
+
+    auto in_message = game_messages::GameMessage();
+
+    size_t readbytes;
+
+    char buf[16384] = {};
+
+    auto login_submessage = game_messages::LogInRequest();
+    login_submessage.set_password(password);
+    login_submessage.set_username(username);
+    login_message.set_allocated_log_in_request(&login_submessage);
+
+    auto send_buf = std::string();
+
+    send_buf = login_message.SerializeAsString();
+    SSL_write(dtls_ssl, send_buf.data(), send_buf.length());
+
+    std::cout << "Sent login message" << std::endl;
+    // Let's hope login passed
+    sleep(2);
+
+    auto message_counter = 0;
+    auto user_id = std::hash<std::string>{}(username);
+    // Now let's send messages and receive responses
+    for (;;) {
+        auto chat_submessage = game_messages::ChatMessageRequest();
+        chat_submessage.set_user_id(user_id);
+        chat_submessage.set_chat_group(
+            game_messages::ChatGroup::CHAT_GROUP_ALL);
+        chat_submessage.set_message("Sent message number " +
+                                    std::to_string(message_counter) +
+                                    "from user " + username);
+
+        chat_message.set_allocated_chat_message_request(&chat_submessage);
+        send_buf = chat_message.SerializeAsString();
+        SSL_write(dtls_ssl, send_buf.data(), send_buf.length());
+
+        for (;;) {
+            if (SSL_read_ex(dtls_ssl, buf, sizeof(buf), &readbytes) > 0) {
+                std::string in_message_string(buf, readbytes);
+                std::cout << "Received message raw form: " << in_message_string
+                          << std::endl;
+                in_message.ParseFromString(in_message_string);
+                std::cout << "Received message: \""
+                          << in_message.chat_message_request().message()
+                          << "\" from user"
+                          << in_message.chat_message_request().user_id()
+                          << std::endl;
+            } else {
+                std::cout << "Didn't read anything!" << std::endl;
+            }
+            if (in_message.chat_message_request().user_id() != user_id) {
+                break;
+            }
+        }
+
+        usleep(500000);
     }
 
     // cleanup
