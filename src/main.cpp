@@ -17,6 +17,28 @@
 #include <sys/types.h>
 #include <thread>
 
+int generate_cookie(SSL *ssl, unsigned char *cookie, unsigned int *cookie_len) {
+
+    (void)ssl;
+    (void)cookie;
+    (void)cookie_len;
+    // just a quick check, this cookie is not normal
+    for (int i = 0; i < 20; i++) {
+        cookie[i] = (char)'a' + i;
+    }
+    cookie_len[0] = 20u;
+
+    return 1;
+}
+int verify_cookie(SSL *ssl, const unsigned char *cookie,
+                  unsigned int cookie_len) {
+    (void)ssl;
+    (void)cookie;
+    (void)cookie_len;
+
+    return 1;
+}
+
 SSL_CTX *setup_new_dtls_ctx(const std::string &cert_path,
                             const std::string &key_path) {
     auto *dtls_ctx = SSL_CTX_new(DTLS_server_method());
