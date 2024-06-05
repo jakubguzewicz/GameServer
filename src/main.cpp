@@ -87,35 +87,58 @@ SSL_CTX *setup_new_tls_ctx(const std::string &cert_path,
     return tls_ctx;
 }
 
-int setup_dtls_listener_socket(const std::string &port) {
+void setup_dtls_listener_socket(int main_fd, SSL &ssl,
+                                BIO_ADDRINFO *server_addrinfo) {
+
+    // For each separate connection we need to make these steps:
+    // 1. Create SSL object for new connection (passsed here as argument)
+    // 2. Create BIO object for new connection and pass it to SSL
+    // 3. Set fd in BIO to the fd used for new connections (the same for all new
+    // connections)
+    // --------------------------
+    // 4. Listen for new connections, but don't process the handshake -
+    // DTLSv1_listen() is responsible for that
+    // --------------------------
+    // 5. Create new fd and bind it to the server address and connect it to the
+    // peer address given by DTLSv1_listen()
+    // 6. Swap the fd in new connection BIO/SSL to the newly made fd
+    // --------------------------
+    // 7. Finish the handshake
+    // 8. Create new thread with new SSL connection
+
+    // Create fd used for the new connection
     auto sock = BIO_socket(AF_INET, SOCK_DGRAM, 0, 0);
     if (sock < 0) {
         throw std::runtime_error(
             "Could not create socket fd for client listener");
     }
 
-    BIO_ADDRINFO *addrinfo = nullptr;
+    // Set up bio with fd listening for new connections
+    auto *bio = BIO_new_dgram(main_fd, BIO_NOCLOSE);
+    SSL_set_bio(&ssl, bio, bio);
 
-    BIO_lookup_ex("0.0.0.0", port.c_str(), BIO_LOOKUP_SERVER, AF_INET,
-                  SOCK_DGRAM, 0, &addrinfo);
+    // Listen for the handshake of new connection and save it's connection tuple
+    // to peer pointer
+    BIO_ADDR *peer = BIO_ADDR_new();
+    DTLSv1_listen(&ssl, peer);
 
-    if (addrinfo == nullptr) {
-        throw std::runtime_error(
-            "Could not lookup ADDRINFO for client listener");
-    }
+    // After we got new connection, it's time to:
+    // 1. bind our new fd to listen on server socket
+    // 2. connect our new fd to peer, whose address we've just got.
+    BIO_bind(sock, BIO_ADDRINFO_address(server_addrinfo), BIO_SOCK_REUSEADDR);
+    BIO_connect(sock, peer, 0);
 
-    if (BIO_listen(sock, BIO_ADDRINFO_address(addrinfo), BIO_SOCK_REUSEADDR) ==
-        0) {
-        throw std::runtime_error(
-            "Could not start listening in client listener");
-    }
+    // Set the bio in ssl to newly made bio
+    SSL_set_bio(&ssl, bio, bio);
 
-    // There is no need to keep addrinfo anymore, needed data is already stored
-    // in os kernel.
+    // Change fd in bio to the newly set up fd and pass it as connected
+    BIO_set_fd(bio, sock, BIO_CLOSE);
+    BIO_ctrl(bio, BIO_CTRL_DGRAM_SET_CONNECTED, 0, &peer);
 
-    BIO_ADDRINFO_free(addrinfo);
+    SSL_set_options(&ssl, SSL_OP_COOKIE_EXCHANGE);
 
-    return sock;
+    // We can free addr, values are stored in system kernel by now.
+    BIO_ADDR_free(peer);
 }
 
 int setup_tls_listener_socket(const std::string &port) {
@@ -188,7 +211,7 @@ void handle_client_connection(std::shared_ptr<SSL> ssl,
                     // the update to connected game server
 
                     ssl_messenger.send_message(
-                        in_message.client_update_state(),
+                        in_message.release_client_update_state(),
                         user_session.connected_game_server_ID);
                 }
                 break;
@@ -204,7 +227,7 @@ void handle_client_connection(std::shared_ptr<SSL> ssl,
                     // the update to connected game server
 
                     ssl_messenger.send_message(
-                        in_message.chat_message_request(),
+                        in_message.release_chat_message_request(),
                         user_session.connected_game_server_ID);
                 }
                 break;
@@ -214,13 +237,14 @@ void handle_client_connection(std::shared_ptr<SSL> ssl,
 
                 // Need to refactor, we need secondary Map<{user_id,
                 // session_id}, SSL>
-                ssl_messenger.send_message(in_message.mutable_log_in_request(),
+                ssl_messenger.send_message(in_message.release_log_in_request(),
                                            user_session);
                 break;
             }
 
             case game_messages::GameMessage::kJoinWorldRequest: {
-                ssl_messenger.send_message(in_message.join_world_request());
+                ssl_messenger.send_message(
+                    in_message.release_join_world_request());
                 break;
             }
 
@@ -295,39 +319,30 @@ void listen_for_new_clients_ssl(const std::string &port,
     auto dtls_ctx = std::unique_ptr<SSL_CTX, SslDeleter>(
         setup_new_dtls_ctx(cert_path, key_path));
 
-    // Bind socket on which we listen
-    // We listen on exactly one port (like), so it needs to be outside of
-    // loop
+    // Bind file descriptor on which we listen
+    // We listen for new connections on one file descriptor, so it needs to be
+    // outside of loop. It should not be a bottleneck unless there is multiple
+    // thousands of login requests per second.
 
-    auto sock = setup_dtls_listener_socket(port);
+    auto new_connection_listener_fd = BIO_socket(AF_INET, SOCK_DGRAM, 0, 0);
+
+    // Get address and port tuple for listener to bind to
+    BIO_ADDRINFO *addrinfo; // NOLINT(*init-variables): variable is initialized
+                            // inside BIO_lookup_ex()
+    if (BIO_lookup_ex("0.0.0.0", port.c_str(), BIO_LOOKUP_SERVER, AF_INET,
+                      SOCK_DGRAM, 0, &addrinfo) == 0) {
+        throw std::runtime_error("Could not loookup server address");
+    }
+
+    if (BIO_bind(new_connection_listener_fd, BIO_ADDRINFO_address(addrinfo),
+                 BIO_SOCK_REUSEADDR) == 0) {
+        throw std::runtime_error(
+            "Could not bind the main listening socket for client listener.\n");
+    }
 
     // Main listening loop
-    //
-    // For each separate connection we need to make these steps:
-    //  1. Create BIO object
-    //  2. Bind BIO object to listener socket
-    //  3. Create SSL object with aforementioned BIO
-    //  4. Accept new connection (it is blocking operation until we get new
-    //  connection)
-    //  5. Create new handler thread using the SSL object with accepted
-    //  connection
 
     while (true) {
-
-        // We use raw pointer here, because we pass this BIO pointer to
-        // std::unique_ptr<SSL,SslDeleter> and deleter uses OpenSSL macro
-        // that correctly frees BIO passed to SSL structure.
-        //
-        // By using the raw pointer we don't get problems with library
-        // compatibility with unique_ptr and we eliminate the problem with
-        // automatic freeing of std::unique_ptr<BIO> when going out of scope
-        // at the end of loop iteration.
-        auto *bio = BIO_new_dgram(sock, BIO_NOCLOSE);
-
-        if (bio == nullptr) {
-            throw std::runtime_error(
-                "Could not create BIO object in client listener");
-        }
 
         auto dtls_ssl =
             std::unique_ptr<SSL, SslDeleter>(SSL_new(dtls_ctx.get()));
@@ -335,9 +350,9 @@ void listen_for_new_clients_ssl(const std::string &port,
             throw std::runtime_error("Failed to create client listener SSL");
         }
 
-        SSL_set_bio(dtls_ssl.get(), bio, bio);
+        setup_dtls_listener_socket(new_connection_listener_fd, *dtls_ssl,
+                                   addrinfo);
 
-        // TODO: check if needed in mock
         SSL_set_options(dtls_ssl.get(), SSL_OP_COOKIE_EXCHANGE);
 
         if (SSL_accept(dtls_ssl.get()) < 1) {
@@ -353,13 +368,13 @@ void listen_for_new_clients_ssl(const std::string &port,
                                  SSL_get_verify_result(dtls_ssl.get()))
                           << "\n";
             }
+        } else {
+            // Create handler thread and detach it
+            std::thread client_handler_thread(handle_client_connection,
+                                              std::move(dtls_ssl),
+                                              std::ref(ssl_messenger));
+            client_handler_thread.detach();
         }
-
-        // Create handler thread and detach it
-        std::thread client_handler_thread(handle_client_connection,
-                                          std::move(dtls_ssl),
-                                          std::ref(ssl_messenger));
-        client_handler_thread.detach();
     }
 }
 
@@ -373,39 +388,30 @@ void listen_for_new_game_servers_ssl(const std::string &port,
     auto dtls_ctx = std::unique_ptr<SSL_CTX, SslDeleter>(
         setup_new_dtls_ctx(cert_path, key_path));
 
-    // Bind socket on which we listen
-    // We listen on exactly one port (like), so it needs to be outside of
-    // loop
+    // Bind file descriptor on which we listen
+    // We listen for new connections on one file descriptor, so it needs to be
+    // outside of loop. It should not be a bottleneck unless there is multiple
+    // thousands of login requests per second.
 
-    auto sock = setup_dtls_listener_socket(port);
+    auto new_connection_listener_fd = BIO_socket(AF_INET, SOCK_DGRAM, 0, 0);
+
+    // Get address and port tuple for listener to bind to
+    BIO_ADDRINFO *addrinfo; // NOLINT(*init-variables): variable is initialized
+                            // inside BIO_lookup_ex()
+    if (BIO_lookup_ex("0.0.0.0", port.c_str(), BIO_LOOKUP_SERVER, AF_INET,
+                      SOCK_DGRAM, 0, &addrinfo) == 0) {
+        throw std::runtime_error("Could not loookup server address");
+    }
+
+    if (BIO_bind(new_connection_listener_fd, BIO_ADDRINFO_address(addrinfo),
+                 BIO_SOCK_REUSEADDR) == 0) {
+        throw std::runtime_error(
+            "Could not bind the main listening socket for client listener.\n");
+    }
 
     // Main listening loop
-    //
-    // For each separate connection we need to make these steps:
-    //  1. Create BIO object
-    //  2. Bind BIO object to listener socket
-    //  3. Create SSL object with aforementioned BIO
-    //  4. Accept new connection (it is blocking operation until we get new
-    //  connection)
-    //  5. Create new handler thread using the SSL object with accepted
-    //  connection
 
     while (true) {
-
-        // We use raw pointer here, because we pass this BIO pointer to
-        // std::unique_ptr<SSL,SslDeleter> and deleter uses OpenSSL macro
-        // that correctly frees BIO passed to SSL structure.
-        //
-        // By using the raw pointer we don't get problems with library
-        // compatibility with unique_ptr and we eliminate the problem with
-        // automatic freeing of std::unique_ptr<BIO> when going out of scope
-        // at the end of loop iteration.
-        auto *bio = BIO_new_dgram(sock, BIO_NOCLOSE);
-
-        if (bio == nullptr) {
-            throw std::runtime_error(
-                "Could not create BIO object in client listener");
-        }
 
         auto dtls_ssl =
             std::unique_ptr<SSL, SslDeleter>(SSL_new(dtls_ctx.get()));
@@ -413,7 +419,8 @@ void listen_for_new_game_servers_ssl(const std::string &port,
             throw std::runtime_error("Failed to create client listener SSL");
         }
 
-        SSL_set_bio(dtls_ssl.get(), bio, bio);
+        setup_dtls_listener_socket(new_connection_listener_fd, *dtls_ssl,
+                                   addrinfo);
 
         // TODO: check if needed in mock
         SSL_set_options(dtls_ssl.get(), SSL_OP_COOKIE_EXCHANGE);
@@ -431,13 +438,13 @@ void listen_for_new_game_servers_ssl(const std::string &port,
                                  SSL_get_verify_result(dtls_ssl.get()))
                           << "\n";
             }
+        } else {
+            // Create handler thread and detach it
+            std::thread game_server_handler_thread(
+                handle_game_server_connection, std::move(dtls_ssl),
+                std::ref(ssl_messenger));
+            game_server_handler_thread.detach();
         }
-
-        // Create handler thread and detach it
-        std::thread game_server_handler_thread(handle_game_server_connection,
-                                               std::move(dtls_ssl),
-                                               std::ref(ssl_messenger));
-        game_server_handler_thread.detach();
     }
 }
 

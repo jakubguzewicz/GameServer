@@ -27,6 +27,11 @@ void SslMessenger::send_message(const game_messages::GameMessage &message,
               message_string.size()); // NOLINT(*-narrowing-conversions)
 }
 
+void SslMessenger::send_message(const std::string &message, SSL &ssl) {
+    SSL_write(&ssl, message.data(),
+              message.size()); // NOLINT(*-narrowing-conversions)
+}
+
 game_messages::GameMessage
 SslMessenger::send_message(game_messages::LogInRequest *message,
                            UserSession &user_session_to_be_added) {
@@ -60,43 +65,43 @@ SslMessenger::send_message(game_messages::LogInRequest *message,
     return {};
 }
 game_messages::GameMessage
-SslMessenger::send_message(game_messages::LogInResponse &message) {
+SslMessenger::send_message(game_messages::LogInResponse *message) {
     (void)message;
     return {};
 }
 game_messages::GameMessage
-SslMessenger::send_message(game_messages::JoinWorldRequest message) const {
+SslMessenger::send_message(game_messages::JoinWorldRequest *message) const {
     (void)message;
     return {};
 }
 game_messages::GameMessage
-SslMessenger::send_message(game_messages::JoinWorldResponse message) const {
+SslMessenger::send_message(game_messages::JoinWorldResponse *message) const {
     (void)message;
     return {};
 }
 game_messages::GameMessage
-SslMessenger::send_message(game_messages::ClientUpdateState message,
+SslMessenger::send_message(game_messages::ClientUpdateState *message,
                            uint32_t game_server_id) const {
     (void)message;
     (void)game_server_id;
     return {};
 }
 game_messages::GameMessage
-SslMessenger::send_message(game_messages::ServerUpdateState message,
+SslMessenger::send_message(game_messages::ServerUpdateState *message,
                            std::vector<uint32_t> user_ids) const {
     (void)message;
     (void)user_ids;
     return {};
 }
 game_messages::GameMessage
-SslMessenger::send_message(game_messages::ChatMessageRequest message,
+SslMessenger::send_message(game_messages::ChatMessageRequest *message,
                            uint32_t game_server_id) const {
     (void)message;
     (void)game_server_id;
     return {};
 }
 game_messages::GameMessage
-SslMessenger::send_message(game_messages::ChatMessageResponse message) const {
+SslMessenger::send_message(game_messages::ChatMessageResponse *message) const {
     (void)message;
     return {};
 }
