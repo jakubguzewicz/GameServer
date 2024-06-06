@@ -14,7 +14,9 @@ message LogInRequest {
 }
 
 message LogInResponse {
-    optional uint32 user_id = 1; // only add when login was successful
+    string username = 1;
+    optional uint32 user_id = 2; // only add when login was successful
+    optional uint32 session_id = 3;
 }
 
 message JoinWorldRequest {
@@ -23,6 +25,7 @@ message JoinWorldRequest {
 }
 
 message JoinWorldResponse {
+    uint32 user_id = 1;
     optional CharacterData character_data = 3; // add when successful
 }
 

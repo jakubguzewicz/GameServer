@@ -2,6 +2,7 @@
 #include <memory>
 #include <openssl/ssl.h>
 #include <ssl_deleter.h>
+#include <unordered_map>
 #include <user_session.hpp>
 #include <vector>
 
@@ -16,11 +17,8 @@ class AuthServer {
 class GameServer {
   public:
     std::shared_ptr<SSL> ssl;
-    std::vector<std::reference_wrapper<UserSession>> connectedUsers;
-
-    // GameServer(const GameServer &) = delete;
-    // GameServer(GameServer &&) = delete;
-    // GameServer &operator=(const GameServer &) = delete;
-    // GameServer &operator=(GameServer &&) = delete;
-    // ~GameServer() = default;
+    std::unordered_map<uint32_t, UserSession &> connectedUsers;
+    explicit GameServer(std::shared_ptr<SSL> ssl) {
+        this->ssl = std::shared_ptr<SSL>(std::move(ssl));
+    }
 };

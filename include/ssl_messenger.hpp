@@ -60,16 +60,18 @@ class SslMessenger {
     game_messages::GameMessage
     send_message(game_messages::JoinWorldRequest *message) const;
     game_messages::GameMessage
-    send_message(game_messages::JoinWorldResponse *message) const;
+    send_message(game_messages::JoinWorldResponse *message,
+                 GameServer &game_server_to_add_user_session_to) const;
     game_messages::GameMessage
     send_message(game_messages::ClientUpdateState *message,
                  uint32_t game_server_id) const;
     game_messages::GameMessage
     send_message(game_messages::ServerUpdateState *message,
-                 std::vector<uint32_t> user_ids) const;
+                 const GameServer &game_server_session) const;
     game_messages::GameMessage
     send_message(game_messages::ChatMessageRequest *message,
                  uint32_t game_server_id) const;
     game_messages::GameMessage
-    send_message(game_messages::ChatMessageResponse *message) const;
+    send_message(game_messages::ChatMessageResponse *message,
+                 const GameServer &game_server_session) const;
 };

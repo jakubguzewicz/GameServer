@@ -1,5 +1,6 @@
 #include "main.hpp"
 #include "proto/game_messages.pb.h"
+#include "servers.hpp"
 #include "ssl_deleter.h"
 #include "ssl_messenger.hpp"
 #include "user_session.hpp"
@@ -204,7 +205,7 @@ void handle_client_connection(std::shared_ptr<SSL> ssl,
             case game_messages::GameMessage::kClientUpdateState: {
                 if (user_session.user_ID == 0) {
                     // TODO: send message about no authentication
-                } else if (user_session.connected_game_server_ID != 0) {
+                } else if (user_session.connected_game_server_ID == 0) {
                     // TODO: send message about no connected game server
                 } else {
                     // user exists and is connected to game server => pass
@@ -220,7 +221,7 @@ void handle_client_connection(std::shared_ptr<SSL> ssl,
             case game_messages::GameMessage::kChatMessageRequest: {
                 if (user_session.user_ID == 0) {
                     // TODO: send message about no authentication
-                } else if (user_session.connected_game_server_ID != 0) {
+                } else if (user_session.connected_game_server_ID == 0) {
                     // TODO: send message about no connected game server
                 } else {
                     // user exists and is connected to game server => pass
@@ -235,16 +236,18 @@ void handle_client_connection(std::shared_ptr<SSL> ssl,
 
             case game_messages::GameMessage::kLogInRequest: {
 
-                // Need to refactor, we need secondary Map<{user_id,
-                // session_id}, SSL>
                 ssl_messenger.send_message(in_message.release_log_in_request(),
                                            user_session);
                 break;
             }
 
             case game_messages::GameMessage::kJoinWorldRequest: {
-                ssl_messenger.send_message(
-                    in_message.release_join_world_request());
+                if (user_session.user_ID == 0) {
+                    // TODO: send message about no authentication
+                } else {
+                    ssl_messenger.send_message(
+                        in_message.release_join_world_request());
+                }
                 break;
             }
 
@@ -257,10 +260,52 @@ void handle_client_connection(std::shared_ptr<SSL> ssl,
     }
 }
 
-void handle_game_server_connection(std::unique_ptr<SSL, SslDeleter> ssl,
+void handle_game_server_connection(std::shared_ptr<SSL> ssl,
                                    SslMessenger &ssl_messenger) {
-    (void)ssl;
-    (void)ssl_messenger;
+    const auto MAX_DTLS_RECORD_SIZE = 16384;
+
+    auto game_server_session = GameServer(std::move(ssl));
+
+    // Maximum DTLS record size is 16kB and single read can return only exactly
+    // one record.
+    auto buf = std::array<char, MAX_DTLS_RECORD_SIZE>();
+    size_t readbytes = 0;
+
+    while (SSL_get_shutdown(game_server_session.ssl.get()) == 0) {
+        if (SSL_read_ex(game_server_session.ssl.get(), buf.data(), sizeof(buf),
+                        &readbytes) > 0) {
+            game_messages::GameMessage in_message;
+            in_message.ParseFromArray(
+                buf.data(), readbytes); // NOLINT(*-narrowing-conversions)
+
+            switch (in_message.message_type_case()) {
+
+            case game_messages::GameMessage::kServerUpdateState: {
+                ssl_messenger.send_message(
+                    in_message.release_server_update_state(),
+                    game_server_session);
+                break;
+            }
+            case game_messages::GameMessage::kChatMessageResponse: {
+                ssl_messenger.send_message(
+                    in_message.release_chat_message_response(),
+                    game_server_session);
+                break;
+            }
+            case game_messages::GameMessage::kJoinWorldResponse: {
+                ssl_messenger.send_message(
+                    in_message.release_join_world_response(),
+                    game_server_session);
+                break;
+            }
+
+            default: {
+                // TODO: implement wrong message type handling
+                break;
+            }
+            }
+        }
+    }
 }
 
 void handle_auth_server_connection(std::unique_ptr<SSL, SslDeleter> ssl,

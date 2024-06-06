@@ -3,11 +3,13 @@
 #include "servers.hpp"
 #include "user_session.hpp"
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 using mutex_type = std::shared_timed_mutex;
 using read_lock = std::shared_lock<mutex_type>;
@@ -35,9 +37,6 @@ void SslMessenger::send_message(const std::string &message, SSL &ssl) {
 game_messages::GameMessage
 SslMessenger::send_message(game_messages::LogInRequest *message,
                            UserSession &user_session_to_be_added) {
-    (void)user_session_to_be_added;
-    (void)message;
-
     std::shared_ptr<SSL> ssl;
     // First we need to check if we can send it anywhere
     {
@@ -66,42 +65,156 @@ SslMessenger::send_message(game_messages::LogInRequest *message,
 }
 game_messages::GameMessage
 SslMessenger::send_message(game_messages::LogInResponse *message) {
-    (void)message;
+
+    // Change state of login queue / user sessions map
+    auto user_session_to_be_added =
+        login_queue_map.extract({message->username(), message->session_id()});
+
+    // If login was correct, then add to user sessions
+    if (message->has_user_id()) {
+        user_sessions.insert_or_assign(
+            user_session_to_be_added.mapped().user_ID,
+            user_session_to_be_added.mapped().ssl);
+    }
+
+    // Then send a message
+    auto out_message = game_messages::GameMessage();
+    out_message.set_allocated_log_in_response(message);
+    auto out_message_string = out_message.SerializeAsString();
+
+    this->send_message(out_message_string,
+                       *user_session_to_be_added.mapped().ssl);
     return {};
 }
 game_messages::GameMessage
 SslMessenger::send_message(game_messages::JoinWorldRequest *message) const {
-    (void)message;
+
+    auto out_message = game_messages::GameMessage();
+    out_message.set_allocated_join_world_request(message);
+    auto out_message_string = out_message.SerializeAsString();
+
+    // For now we send to the first game server
+    std::shared_ptr<SSL> ssl;
+    // First we need to check if we can send it anywhere
+    {
+        read_lock lock(_auth_mutex);
+        auto iterator = this->game_servers.begin();
+
+        // If we cannot send it, return early
+        if (iterator == this->game_servers.end()) {
+            return {};
+        } else {
+            // Right now we just get the first server (as we expect only one
+            // atm), later we can change iterator->second.ssl to member function
+            // get_auth_server()
+            ssl = iterator->second.ssl;
+        }
+    }
+
+    this->send_message(out_message_string, *ssl);
     return {};
 }
-game_messages::GameMessage
-SslMessenger::send_message(game_messages::JoinWorldResponse *message) const {
-    (void)message;
+game_messages::GameMessage SslMessenger::send_message(
+    game_messages::JoinWorldResponse *message,
+    GameServer &game_server_to_add_user_session_to) const {
+
+    auto user_session = std::ref(user_sessions.at(message->user_id()));
+
+    if (message->has_character_data()) {
+        // User successfully joined the world, because character data is set
+        game_server_to_add_user_session_to.connectedUsers.insert_or_assign(
+            user_session.get().user_ID, user_session.get());
+    }
+
+    auto out_message = game_messages::GameMessage();
+    out_message.set_allocated_join_world_response(message);
+    auto out_message_string = out_message.SerializeAsString();
+    this->send_message(out_message_string, *user_session.get().ssl);
     return {};
 }
 game_messages::GameMessage
 SslMessenger::send_message(game_messages::ClientUpdateState *message,
                            uint32_t game_server_id) const {
-    (void)message;
-    (void)game_server_id;
+    auto out_message = game_messages::GameMessage();
+    out_message.set_allocated_client_update_state(message);
+    auto out_message_string = out_message.SerializeAsString();
+
+    this->send_message(out_message_string,
+                       *this->game_servers.at(game_server_id).ssl);
     return {};
 }
 game_messages::GameMessage
 SslMessenger::send_message(game_messages::ServerUpdateState *message,
-                           std::vector<uint32_t> user_ids) const {
-    (void)message;
-    (void)user_ids;
+                           const GameServer &game_server_session) const {
+    auto out_message = game_messages::GameMessage();
+    out_message.set_allocated_server_update_state(message);
+    auto out_message_string = out_message.SerializeAsString();
+    for (const auto &user_session : game_server_session.connectedUsers) {
+        this->send_message(out_message_string, *user_session.second.ssl);
+    }
     return {};
 }
 game_messages::GameMessage
 SslMessenger::send_message(game_messages::ChatMessageRequest *message,
                            uint32_t game_server_id) const {
+
+    switch (message->chat_group()) {
+
+    case game_messages::CHAT_GROUP_ALL: {
+        auto out_message = game_messages::ChatMessageResponse();
+        out_message.set_source_user_id(message->user_id());
+        out_message.set_chat_group(message->chat_group());
+        out_message.set_message(message->message());
+
+        this->send_message(&out_message, this->game_servers.at(game_server_id));
+        break;
+    }
+    case game_messages::CHAT_GROUP_WHISPER:
+    case game_messages::CHAT_GROUP_PARTY: {
+        auto out_message = game_messages::GameMessage();
+        out_message.set_allocated_chat_message_request(message);
+        auto out_message_string = out_message.SerializeAsString();
+
+        this->send_message(out_message_string,
+                           *this->game_servers.at(game_server_id).ssl);
+    }
+    default: {
+        // TODO: Wrong message format
+        break;
+    }
+    }
+
     (void)message;
     (void)game_server_id;
     return {};
 }
 game_messages::GameMessage
-SslMessenger::send_message(game_messages::ChatMessageResponse *message) const {
-    (void)message;
+SslMessenger::send_message(game_messages::ChatMessageResponse *message,
+                           const GameServer &game_server_session) const {
+    auto out_message = game_messages::GameMessage();
+    if (out_message.chat_message_response().chat_group() ==
+        game_messages::ChatGroup::CHAT_GROUP_ALL) {
+        // As we send messages to everyone on the server, we don't need to look
+        // at dest_users_id and we should not send it to everyone => unneeded
+        // data to send
+        message->clear_dest_users_id();
+        out_message.set_allocated_chat_message_response(message);
+        auto out_message_string = out_message.SerializeAsString();
+
+        for (auto user_session : game_server_session.connectedUsers) {
+            this->send_message(out_message_string, *user_session.second.ssl);
+        }
+    } else {
+        out_message.set_allocated_chat_message_response(message);
+        auto out_message_string = out_message.SerializeAsString();
+        // We send dest users to party/whisper so it works correctly in case of
+        // group whisper messages
+        for (auto user_id :
+             out_message.chat_message_response().dest_users_id()) {
+            this->send_message(out_message_string,
+                               *user_sessions.find(user_id)->second.ssl);
+        }
+    }
+
     return {};
 }
