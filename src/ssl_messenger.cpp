@@ -74,7 +74,7 @@ SslMessenger::send_message(game_messages::LogInResponse *message) {
     if (message->has_user_id()) {
         user_sessions.insert_or_assign(
             user_session_to_be_added.mapped().user_ID,
-            user_session_to_be_added.mapped().ssl);
+            user_session_to_be_added.mapped());
     }
 
     // Then send a message
