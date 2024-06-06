@@ -458,22 +458,10 @@ void listen_for_new_auth_servers_ssl(const std::string &port,
     auto tls_ctx = std::unique_ptr<SSL_CTX, SslDeleter>(
         setup_new_tls_ctx(cert_path, key_path));
 
-    // Bind socket on which we listen
-    // We listen on exactly one port (like), so it needs to be outside of
-    // loop
+    auto *ssl_bio = BIO_new_ssl(tls_ctx.get(), 0);
 
-    auto sock = setup_tls_listener_socket(port);
-
-    // Main listening loop
-    //
-    // For each separate connection we need to make these steps:
-    //  1. Create BIO object
-    //  2. Bind BIO object to listener socket
-    //  3. Create SSL object with aforementioned BIO
-    //  4. Accept new connection (it is blocking operation until we get new
-    //  connection)
-    //  5. Create new handler thread using the SSL object with accepted
-    //  connection
+    auto *accept_bio = BIO_new_accept(port.data());
+    BIO_set_accept_bios(accept_bio, ssl_bio);
 
     while (true) {
 
@@ -485,34 +473,19 @@ void listen_for_new_auth_servers_ssl(const std::string &port,
         // compatibility with unique_ptr and we eliminate the problem with
         // automatic freeing of std::unique_ptr<BIO> when going out of scope
         // at the end of loop iteration.
-        auto *bio = BIO_new_socket(sock, BIO_NOCLOSE);
-
-        if (bio == nullptr) {
-            throw std::runtime_error(
-                "Could not create BIO object in client listener");
+        if (BIO_do_accept(accept_bio) <= 0) {
+            std::cout << "accept bio\n";
         }
 
         auto tls_ssl = std::unique_ptr<SSL, SslDeleter>(SSL_new(tls_ctx.get()));
         if (tls_ssl == nullptr) {
+            std::cout << "Error 18\n";
             throw std::runtime_error("Failed to create client listener SSL");
         }
 
-        SSL_set_bio(tls_ssl.get(), bio, bio);
+        auto *conn_bio = BIO_pop(accept_bio);
 
-        if (SSL_accept(tls_ssl.get()) < 1) {
-            std::cout << "Failed to accept client\n";
-            /*
-             * If the failure is due to a verification error we can get more
-             * information about it from SSL_get_verify_result().
-             */
-            if (SSL_get_verify_result(tls_ssl.get()) != X509_V_OK) {
-                std::cout << "Verify error:"
-                          << "\n"
-                          << X509_verify_cert_error_string(
-                                 SSL_get_verify_result(tls_ssl.get()))
-                          << "\n";
-            }
-        }
+        SSL_set_bio(tls_ssl.get(), conn_bio, conn_bio);
 
         // Create handler thread and detach it
         std::thread auth_server_handler_thread(handle_auth_server_connection,
