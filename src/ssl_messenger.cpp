@@ -72,6 +72,7 @@ SslMessenger::send_message(game_messages::LogInResponse *message) {
 
     // If login was correct, then add to user sessions
     if (message->has_user_id()) {
+        write_lock lock(_user_mutex);
         user_sessions.insert_or_assign(
             user_session_to_be_added.mapped().user_ID,
             user_session_to_be_added.mapped());
@@ -118,10 +119,15 @@ game_messages::GameMessage SslMessenger::send_message(
     game_messages::JoinWorldResponse *message,
     GameServer &game_server_to_add_user_session_to) const {
 
+    // Can't user RAII, because of scope issues with reference wrapper
+    // constructor. But this case is easy and straightforward
+    _user_mutex.lock_shared();
     auto user_session = std::ref(user_sessions.at(message->user_id()));
+    _user_mutex.unlock_shared();
 
     if (message->has_character_data()) {
         // User successfully joined the world, because character data is set
+        write_lock lock(_game_mutex);
         game_server_to_add_user_session_to.connectedUsers.insert_or_assign(
             user_session.get().user_ID, user_session.get());
     }
@@ -139,8 +145,11 @@ SslMessenger::send_message(game_messages::ClientUpdateState *message,
     out_message.set_allocated_client_update_state(message);
     auto out_message_string = out_message.SerializeAsString();
 
-    this->send_message(out_message_string,
-                       *this->game_servers.at(game_server_id).ssl);
+    {
+        read_lock lock(_game_mutex);
+        this->send_message(out_message_string,
+                           *this->game_servers.at(game_server_id).ssl);
+    }
     return {};
 }
 game_messages::GameMessage
@@ -166,7 +175,11 @@ SslMessenger::send_message(game_messages::ChatMessageRequest *message,
         out_message.set_chat_group(message->chat_group());
         out_message.set_message(message->message());
 
-        this->send_message(&out_message, this->game_servers.at(game_server_id));
+        {
+            read_lock lock(_game_mutex);
+            this->send_message(&out_message,
+                               this->game_servers.at(game_server_id));
+        }
         break;
     }
     case game_messages::CHAT_GROUP_WHISPER:
@@ -174,9 +187,11 @@ SslMessenger::send_message(game_messages::ChatMessageRequest *message,
         auto out_message = game_messages::GameMessage();
         out_message.set_allocated_chat_message_request(message);
         auto out_message_string = out_message.SerializeAsString();
-
-        this->send_message(out_message_string,
-                           *this->game_servers.at(game_server_id).ssl);
+        {
+            read_lock lock(_game_mutex);
+            this->send_message(out_message_string,
+                               *this->game_servers.at(game_server_id).ssl);
+        }
     }
     default: {
         // TODO: Wrong message format
@@ -211,6 +226,7 @@ SslMessenger::send_message(game_messages::ChatMessageResponse *message,
         // group whisper messages
         for (auto user_id :
              out_message.chat_message_response().dest_users_id()) {
+            read_lock lock(_user_mutex);
             this->send_message(out_message_string,
                                *user_sessions.find(user_id)->second.ssl);
         }
