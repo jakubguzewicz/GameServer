@@ -264,12 +264,15 @@ void handle_game_server_connection(std::shared_ptr<SSL> ssl,
                                    SslMessenger &ssl_messenger) {
     const auto MAX_DTLS_RECORD_SIZE = 16384;
 
+    static uint32_t server_id = 1;
     auto game_server_session = GameServer(std::move(ssl));
 
     // Maximum DTLS record size is 16kB and single read can return only exactly
     // one record.
     auto buf = std::array<char, MAX_DTLS_RECORD_SIZE>();
     size_t readbytes = 0;
+
+    ssl_messenger.add_to_game_servers(server_id++, game_server_session);
 
     while (SSL_get_shutdown(game_server_session.ssl.get()) == 0) {
         if (SSL_read_ex(game_server_session.ssl.get(), buf.data(), sizeof(buf),

@@ -234,3 +234,37 @@ SslMessenger::send_message(game_messages::ChatMessageResponse *message,
 
     return {};
 }
+
+void SslMessenger::remove_from_game_servers(uint32_t server_id) {
+    if (server_id != 0) {
+        write_lock lock(_game_mutex);
+        this->game_servers.erase(server_id);
+    }
+}
+void SslMessenger::remove_from_user_sessions(uint32_t user_id) {
+    if (user_id != 0) {
+        write_lock lock(_user_mutex);
+        user_sessions.erase(user_id);
+    }
+}
+void SslMessenger::remove_from_auth_servers(uint32_t server_id) {
+    if (server_id != 0) {
+        write_lock lock(_auth_mutex);
+        user_sessions.erase(server_id);
+    }
+}
+
+void SslMessenger::add_to_game_servers(uint32_t server_id,
+                                       GameServer &game_server) {
+    if (server_id != 0) {
+        write_lock lock(_game_mutex);
+        this->game_servers.insert_or_assign(server_id, game_server);
+    }
+}
+void SslMessenger::add_to_auth_servers(uint32_t server_id,
+                                       AuthServer &auth_server) {
+    if (server_id != 0) {
+        write_lock lock(_auth_mutex);
+        this->game_servers.insert_or_assign(server_id, auth_server);
+    }
+}

@@ -52,6 +52,16 @@ class SslMessenger {
                                 const std::string &username,
                                 UserSession &user_session);
 
+    void remove_from_game_servers(uint32_t server_id);
+    void remove_from_user_sessions(uint32_t user_id);
+    void remove_from_auth_servers(uint32_t server_id);
+
+    void add_to_game_servers(uint32_t server_id, GameServer &game_server);
+    void add_to_auth_servers(uint32_t server_id, AuthServer &auth_server);
+    // You should not publicly add users to game session, add them by processing
+    // login messages logic
+    void add_to_users() = delete;
+
     game_messages::GameMessage
     send_message(game_messages::LogInRequest *message,
                  UserSession &user_session_to_be_added);
