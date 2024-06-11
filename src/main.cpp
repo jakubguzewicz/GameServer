@@ -6,11 +6,16 @@
 #include "user_session.hpp"
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <openssl/bio.h>
+#include <openssl/cryptoerr_legacy.h>
+#include <openssl/evp.h>
+#include <openssl/hmac.h>
 #include <openssl/prov_ssl.h>
+#include <openssl/rand.h>
 #include <openssl/ssl.h>
 #include <openssl/types.h>
 #include <stdexcept>
@@ -18,26 +23,93 @@
 #include <sys/types.h>
 #include <thread>
 
+// Unfortunately we need to store cookie secret as global variable (or in any
+// kind of globally accessible element), because SSL uses pre-defined callbacks,
+// generate_cookie and verify_cookie both of which require access to the same
+// values generated at runtime but do not offer any kind of passing of custom
+// data inside of them
+
+// NOLINTBEGIN(*-avoid-non-const-global-variables)
+#define COOKIE_SECRET_LENGTH 16
+
+auto is_cookie_initialized = false;
+auto cookie_secret = std::array<unsigned char, COOKIE_SECRET_LENGTH>();
+// NOLINTEND(*-avoid-non-const-global-variables)
+
 int generate_cookie(SSL *ssl, unsigned char *cookie, unsigned int *cookie_len) {
 
-    (void)ssl;
-    (void)cookie;
-    (void)cookie_len;
-    // just a quick check, this cookie is not normal
-    for (int i = 0; i < 20; i++) {
-        cookie[i] = (char)'a' + i;
+    auto buffer = std::array<char, EVP_MAX_MD_SIZE>();
+    auto result = std::array<unsigned char, EVP_MAX_MD_SIZE>();
+    auto result_length = 0U;
+
+    if (!is_cookie_initialized) {
+        if (RAND_bytes(cookie_secret.data(), COOKIE_SECRET_LENGTH) != 1) {
+            throw std::runtime_error("Could not initialize cookie");
+        } else {
+            is_cookie_initialized = true;
+        }
     }
-    cookie_len[0] = 20u;
+
+    auto *peer = BIO_ADDR_new();
+    BIO_dgram_get_peer(SSL_get_rbio(ssl), &peer);
+
+    auto hostname = std::unique_ptr<char>(BIO_ADDR_hostname_string(peer, 1));
+    auto port = std::unique_ptr<char>(BIO_ADDR_service_string(peer, 1));
+
+    // Copy values of hostname and port to buffer
+    std::strcpy(buffer.data(), hostname.get());
+    std::strcpy(buffer.data() + std::strlen(hostname.get()) + 1, port.get());
+
+    // NOLINTBEGIN(*-reinterpret-cast)
+    HMAC(EVP_sha256(), cookie_secret.data(), COOKIE_SECRET_LENGTH,
+         reinterpret_cast<unsigned char *>(buffer.data()),
+         std::strlen(buffer.data()), result.data(), &result_length);
+    // NOLINTEND(*-reinterpret-cast)
+
+    std::memcpy(cookie, result.data(), result_length);
+    *cookie_len = result_length;
 
     return 1;
 }
+
 int verify_cookie(SSL *ssl, const unsigned char *cookie,
                   unsigned int cookie_len) {
-    (void)ssl;
-    (void)cookie;
-    (void)cookie_len;
 
-    return 1;
+    auto buffer = std::array<char, EVP_MAX_MD_SIZE>();
+    auto result = std::array<unsigned char, EVP_MAX_MD_SIZE>();
+    auto result_length = 0U;
+
+    if (!is_cookie_initialized) {
+        if (RAND_bytes(cookie_secret.data(), COOKIE_SECRET_LENGTH) != 1) {
+            throw std::runtime_error("Could not initialize cookie");
+        } else {
+            is_cookie_initialized = true;
+        }
+    }
+
+    auto *peer = BIO_ADDR_new();
+    BIO_dgram_get_peer(SSL_get_rbio(ssl), &peer);
+
+    auto hostname = std::unique_ptr<char>(BIO_ADDR_hostname_string(peer, 1));
+    auto port = std::unique_ptr<char>(BIO_ADDR_service_string(peer, 1));
+
+    // Copy values of hostname and port to buffer
+    std::strcpy(buffer.data(), hostname.get());
+    std::strcpy(buffer.data() + std::strlen(hostname.get()) + 1, port.get());
+
+    // NOLINTBEGIN(*-reinterpret-cast)
+    HMAC(EVP_sha256(), cookie_secret.data(), COOKIE_SECRET_LENGTH,
+         reinterpret_cast<unsigned char *>(buffer.data()),
+         std::strlen(buffer.data()), result.data(), &result_length);
+    // NOLINTEND(*-reinterpret-cast)
+
+    if (cookie_len == result_length &&
+        std::memcmp(result.data(), cookie, result_length) == 0) {
+        // Cookie is verified correctly
+        return 1;
+    }
+
+    return 0;
 }
 
 SSL_CTX *setup_new_dtls_ctx(const std::string &cert_path,
@@ -264,7 +336,8 @@ void handle_game_server_connection(std::shared_ptr<SSL> ssl,
                                    SslMessenger &ssl_messenger) {
     const auto MAX_DTLS_RECORD_SIZE = 16384;
 
-    static uint32_t server_id = 1;
+    static uint32_t game_server_id_counter = 1;
+    auto server_id = game_server_id_counter++;
     auto game_server_session = GameServer(std::move(ssl));
 
     // Maximum DTLS record size is 16kB and single read can return only exactly
@@ -272,7 +345,7 @@ void handle_game_server_connection(std::shared_ptr<SSL> ssl,
     auto buf = std::array<char, MAX_DTLS_RECORD_SIZE>();
     size_t readbytes = 0;
 
-    ssl_messenger.add_to_game_servers(server_id++, game_server_session);
+    ssl_messenger.add_to_game_servers(server_id, game_server_session);
 
     while (SSL_get_shutdown(game_server_session.ssl.get()) == 0) {
         if (SSL_read_ex(game_server_session.ssl.get(), buf.data(), sizeof(buf),
@@ -309,23 +382,52 @@ void handle_game_server_connection(std::shared_ptr<SSL> ssl,
             }
         }
     }
+    ssl_messenger.remove_from_game_servers(server_id);
 }
 
 void handle_auth_server_connection(std::unique_ptr<SSL, SslDeleter> ssl,
                                    SslMessenger &ssl_messenger) {
-    (void)ssl;
-    (void)ssl_messenger;
+
+    const auto MAX_TLS_RECORD_SIZE = 16384;
+
+    static uint32_t auth_server_id_counter = 1;
+    auto server_id = auth_server_id_counter++;
+    auto auth_server_session = AuthServer(std::move(ssl));
+
+    auto buf = std::array<char, MAX_TLS_RECORD_SIZE>();
+    size_t readbytes = 0;
+
+    ssl_messenger.add_to_auth_servers(server_id, auth_server_session);
+
+    while (SSL_get_shutdown(auth_server_session.ssl.get()) == 0) {
+
+        if (SSL_read_ex(auth_server_session.ssl.get(), buf.data(), sizeof(buf),
+                        &readbytes) > 0) {
+
+            game_messages::GameMessage in_message;
+            in_message.ParseFromArray(
+                buf.data(), readbytes); // NOLINT(*-narrowing-conversions)
+
+            switch (in_message.message_type_case()) {
+
+            case game_messages::GameMessage::kLogInResponse: {
+                ssl_messenger.send_message(
+                    in_message.release_log_in_response());
+                break;
+            }
+            default: {
+                // TODO: wrong message
+                break;
+            }
+            }
+        }
+    }
+    ssl_messenger.remove_from_auth_servers(server_id);
 }
 
 int main(int argc, char const *argv[]) {
     (void)argv;
     (void)argc;
-
-    // Unneeded for now
-    // Setup empty data structures
-    // std::unordered_map<uint32_t, GameServer> game_servers;
-    // std::unordered_map<uint32_t, AuthServer> auth_servers;
-    // std::unordered_map<uint32_t, UserSession> connected_users;
 
     // Setup mediator/messenger
 

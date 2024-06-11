@@ -12,6 +12,9 @@ class AuthServer {
 
   public:
     std::shared_ptr<SSL> ssl;
+    explicit AuthServer(std::shared_ptr<SSL> ssl) {
+        this->ssl = std::shared_ptr<SSL>(std::move(ssl));
+    }
 };
 
 class GameServer {

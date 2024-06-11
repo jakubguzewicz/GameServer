@@ -265,6 +265,6 @@ void SslMessenger::add_to_auth_servers(uint32_t server_id,
                                        AuthServer &auth_server) {
     if (server_id != 0) {
         write_lock lock(_auth_mutex);
-        this->game_servers.insert_or_assign(server_id, auth_server);
+        this->auth_servers.insert_or_assign(server_id, auth_server);
     }
 }
