@@ -1,5 +1,5 @@
+#include "game_messages.pb.h"
 #include "login_data.hpp"
-#include "proto/game_messages.pb.h"
 #include "servers.hpp"
 #include "ssl_messenger.hpp"
 #include "user_session.hpp"

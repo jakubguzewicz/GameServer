@@ -23,11 +23,11 @@ add_compile_options(-Wall -Wextra -pedantic -Werror)
 
 include_directories(lib)
 include_directories(include)
-include_directories(${CMAKE_CURRENT_BINARY_DIR}/include)
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/include/proto)
 
 enable_testing()
 
 add_subdirectory(lib)
-add_subdirectory(include)
 add_subdirectory(src)
+add_subdirectory(include)
 add_subdirectory(tests)

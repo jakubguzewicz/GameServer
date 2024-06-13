@@ -1,4 +1,4 @@
-#include "proto/game_messages.pb.h"
+#include "game_messages.pb.h"
 #include "servers.hpp"
 #include "user_session.hpp"
 #include <boost/functional/hash.hpp>

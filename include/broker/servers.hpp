@@ -1,9 +1,9 @@
+#include "user_session.hpp"
 #include <functional>
 #include <memory>
 #include <openssl/ssl.h>
 #include <ssl_deleter.h>
 #include <unordered_map>
-#include <user_session.hpp>
 #include <vector>
 
 #pragma once

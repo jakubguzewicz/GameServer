@@ -1,5 +1,5 @@
 #include "main.hpp"
-#include "proto/game_messages.pb.h"
+#include "game_messages.pb.h"
 #include "servers.hpp"
 #include "ssl_deleter.h"
 #include "ssl_messenger.hpp"
