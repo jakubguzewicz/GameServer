@@ -10,7 +10,6 @@ tmp/
 
 #build files
 build/
-docker/
 
 # test file with one passed and one failed test
 sanity_check.cpp
