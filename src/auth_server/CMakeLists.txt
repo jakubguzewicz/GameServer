@@ -1,5 +1,12 @@
 find_package(OpenSSL REQUIRED)
+find_package(mongocxx CONFIG REQUIRED)
+# find_package(libmongocxx REQUIRED)
+# find_package(libbsoncxx REQUIRED)
+# include_directories(${LIBMONGOCXX_INCLUDE_DIRS})
+# include_directories(${LIBBSONCXX_INCLUDE_DIRS})
 
 add_executable(auth_server main.cpp)
-target_link_libraries(auth_server proto_objects OpenSSL::SSL)
-
+target_link_libraries(auth_server PRIVATE mongo::mongocxx_shared)
+target_link_libraries(auth_server PRIVATE proto_objects OpenSSL::SSL)
+# target_link_libraries(auth_server ${LIBMONGOCXX_LIBRARIES})
+# target_link_libraries(auth_server ${LIBBSONCXX_LIBRARIES})
