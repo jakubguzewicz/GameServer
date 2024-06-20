@@ -11,12 +11,13 @@ message SampleString {
 message LogInRequest {
     string username = 1;
     string password = 2;
+    optional uint32 session_id = 3; // maybe should be separated to another message type
 }
 
 message LogInResponse {
     string username = 1;
     optional uint32 user_id = 2; // only add when login was successful
-    optional uint32 session_id = 3;
+    uint32 session_id = 3;
 }
 
 message JoinWorldRequest {
