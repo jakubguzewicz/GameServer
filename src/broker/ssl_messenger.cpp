@@ -54,8 +54,10 @@ SslMessenger::send_message(game_messages::LogInRequest *message,
         }
     }
 
-    this->add_to_login_queue_map(this->_session_id_counter++,
-                                 message->username(), user_session_to_be_added);
+    ++this->_session_id_counter;
+    message->set_session_id(this->_session_id_counter);
+    this->add_to_login_queue_map(this->_session_id_counter, message->username(),
+                                 user_session_to_be_added);
 
     auto to_send = game_messages::GameMessage();
     to_send.set_allocated_log_in_request(message);
@@ -63,6 +65,7 @@ SslMessenger::send_message(game_messages::LogInRequest *message,
     send_message(to_send, *ssl);
     return {};
 }
+
 game_messages::GameMessage
 SslMessenger::send_message(game_messages::LogInResponse *message) {
 
