@@ -1,6 +1,7 @@
 #include "main.hpp"
 #include "game_messages.pb.h"
 #include "ssl_deleter.h"
+#include <array>
 #include <bsoncxx/builder/basic/kvp.hpp>
 #include <bsoncxx/json-fwd.hpp>
 #include <cstddef>
@@ -16,13 +17,34 @@
 #include <mongocxx/stdx.hpp>
 #include <mongocxx/uri.hpp>
 #include <openssl/bio.h>
+#include <openssl/evp.h>
 #include <openssl/ssl.h>
 #include <stdexcept>
 #include <sys/socket.h>
 
+#include "kdf_deleter.h"
+
+#include <openssl/core_names.h> /* OSSL_KDF_*           */
+#include <openssl/kdf.h>        /* EVP_KDF_*            */
+#include <openssl/params.h>     /* OSSL_PARAM_*         */
+#include <openssl/thread.h>     /* OSSL_set_max_threads */
+#include <vector>
+
 using bsoncxx::builder::basic::kvp;
 using bsoncxx::builder::basic::make_array;
 using bsoncxx::builder::basic::make_document;
+
+std::pair<std::vector<unsigned char>, size_t> decode_base64(std::string input) {
+    const auto buffer_length = (3 * input.length()) / 4;
+    auto output = std::vector<unsigned char>();
+    output.resize(buffer_length);
+    // NOLINTBEGIN
+    auto output_length = EVP_DecodeBlock(
+        output.data(), reinterpret_cast<const unsigned char *>(input.c_str()),
+        input.length());
+    // NOLINTEND
+    return {output, output_length};
+}
 
 int main(int argc, char const *argv[]) { // NOLINT(bugprone-exception-escape)
     (void)argc;
@@ -159,8 +181,44 @@ int main(int argc, char const *argv[]) { // NOLINT(bugprone-exception-escape)
     return 0;
 }
 
-bool check_password(Credentials credentials) {
+bool check_password(const Credentials &credentials) {
     // TODO
     (void)credentials;
+
+    const static size_t outlen = 128;
+    static auto kdf = std::unique_ptr<EVP_KDF, KdfDeleter>(
+        EVP_KDF_fetch(NULL, "ARGON2D", NULL));
+
+    static auto kdf_ctx =
+        std::unique_ptr<EVP_KDF_CTX, KdfDeleter>(EVP_KDF_CTX_new(kdf.get()));
+
+    auto params = std::array<OSSL_PARAM, 6>(); // NOLINT(*-magic-numbers)
+    auto *params_ptr = params.data();
+
+    uint32_t lanes = 1;
+    uint32_t threads = 1;
+    uint32_t memcost = 2097152; // NOLINT(*-magic-numbers): 2 GBs for 1 lane
+
+    auto result = std::array<unsigned char, outlen>();
+
+    // NOLINTBEGIN(*-pointer-arithmetic): Code snippet taken from OpenSSL
+    // official documentation
+    *params_ptr++ =
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_THREADS, &threads);
+    *params_ptr++ =
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_LANES, &lanes);
+    *params_ptr++ =
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_MEMCOST, &memcost);
+    // *params_ptr++ = OSSL_PARAM_construct_octet_string(
+    //     OSSL_KDF_PARAM_SALT, (void *)credentials.salt.data(),
+    //     credentials.salt.length());
+    // *params_ptr++ = OSSL_PARAM_construct_octet_string(
+    //     OSSL_KDF_PARAM_PASSWORD, (void *)credentials.password.data(),
+    //     credentials.password.length());
+    // *params_ptr++ = OSSL_PARAM_construct_end();
+    // NOLINTEND(*-pointer-arithmetic)
+
+    // Generate Hash
+
     return true;
 }

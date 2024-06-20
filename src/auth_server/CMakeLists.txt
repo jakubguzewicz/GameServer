@@ -7,6 +7,6 @@ find_package(mongocxx CONFIG REQUIRED)
 
 add_executable(auth_server main.cpp)
 target_link_libraries(auth_server PRIVATE mongo::mongocxx_shared)
-target_link_libraries(auth_server PRIVATE proto_objects OpenSSL::SSL)
+target_link_libraries(auth_server PRIVATE proto_objects OpenSSL::SSL OpenSSL::Crypto)
 # target_link_libraries(auth_server ${LIBMONGOCXX_LIBRARIES})
 # target_link_libraries(auth_server ${LIBBSONCXX_LIBRARIES})
