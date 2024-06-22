@@ -5,6 +5,7 @@
 #include <bsoncxx/builder/basic/kvp.hpp>
 #include <bsoncxx/json-fwd.hpp>
 #include <cstddef>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <mongocxx/instance-fwd.hpp>
@@ -182,12 +183,9 @@ int main(int argc, char const *argv[]) { // NOLINT(bugprone-exception-escape)
 }
 
 bool check_password(const Credentials &credentials) {
-    // TODO
-    (void)credentials;
-
     const static size_t outlen = 128;
     static auto kdf = std::unique_ptr<EVP_KDF, KdfDeleter>(
-        EVP_KDF_fetch(NULL, "ARGON2D", NULL));
+        EVP_KDF_fetch(nullptr, "ARGON2D", nullptr));
 
     static auto kdf_ctx =
         std::unique_ptr<EVP_KDF_CTX, KdfDeleter>(EVP_KDF_CTX_new(kdf.get()));
@@ -201,6 +199,8 @@ bool check_password(const Credentials &credentials) {
 
     auto result = std::array<unsigned char, outlen>();
 
+    auto salt_base64 = decode_base64(credentials.salt);
+
     // NOLINTBEGIN(*-pointer-arithmetic): Code snippet taken from OpenSSL
     // official documentation
     *params_ptr++ =
@@ -209,16 +209,30 @@ bool check_password(const Credentials &credentials) {
         OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_LANES, &lanes);
     *params_ptr++ =
         OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_MEMCOST, &memcost);
-    // *params_ptr++ = OSSL_PARAM_construct_octet_string(
-    //     OSSL_KDF_PARAM_SALT, (void *)credentials.salt.data(),
-    //     credentials.salt.length());
-    // *params_ptr++ = OSSL_PARAM_construct_octet_string(
-    //     OSSL_KDF_PARAM_PASSWORD, (void *)credentials.password.data(),
-    //     credentials.password.length());
-    // *params_ptr++ = OSSL_PARAM_construct_end();
+    *params_ptr++ = OSSL_PARAM_construct_octet_string(
+        OSSL_KDF_PARAM_SALT, (void *)salt_base64.first.data(),
+        salt_base64.second);
+    *params_ptr++ = OSSL_PARAM_construct_octet_string(
+        OSSL_KDF_PARAM_PASSWORD, (void *)credentials.password.data(),
+        credentials.password.length());
+    *params_ptr++ = OSSL_PARAM_construct_end();
     // NOLINTEND(*-pointer-arithmetic)
 
     // Generate Hash
+    if (EVP_KDF_derive(kdf_ctx.get(), result.data(), result.size(),
+                       params_ptr) != 1) {
+        return false;
+    }
+
+    auto hash_base64 = decode_base64(credentials.hash);
+
+    if (result.size() != outlen) {
+        return false;
+    }
+
+    if (std::memcmp(result.data(), hash_base64.first.data(), outlen) == 0) {
+        return true;
+    }
 
     return true;
 }
