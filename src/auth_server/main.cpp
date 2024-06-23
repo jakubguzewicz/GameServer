@@ -35,7 +35,8 @@ using bsoncxx::builder::basic::kvp;
 using bsoncxx::builder::basic::make_array;
 using bsoncxx::builder::basic::make_document;
 
-std::pair<std::vector<unsigned char>, size_t> decode_base64(std::string input) {
+std::pair<std::vector<unsigned char>, size_t>
+decode_base64(const std::string &input) {
     const auto buffer_length = (3 * input.length()) / 4;
     auto output = std::vector<unsigned char>();
     output.resize(buffer_length);
@@ -183,9 +184,9 @@ int main(int argc, char const *argv[]) { // NOLINT(bugprone-exception-escape)
 }
 
 bool check_password(const Credentials &credentials) {
-    const static size_t outlen = 128;
+    const static size_t outlen = 256;
     static auto kdf = std::unique_ptr<EVP_KDF, KdfDeleter>(
-        EVP_KDF_fetch(nullptr, "ARGON2D", nullptr));
+        EVP_KDF_fetch(nullptr, "ARGON2I", nullptr));
 
     static auto kdf_ctx =
         std::unique_ptr<EVP_KDF_CTX, KdfDeleter>(EVP_KDF_CTX_new(kdf.get()));

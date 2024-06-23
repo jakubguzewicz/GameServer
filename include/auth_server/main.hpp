@@ -7,4 +7,4 @@ struct Credentials {
     std::string hash;
 };
 
-bool check_password(Credentials credentials);
+bool check_password(const Credentials &credentials);
