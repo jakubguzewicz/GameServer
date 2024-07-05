@@ -81,7 +81,8 @@ SslMessenger::send_message(game_messages::LogInResponse *message) {
             user_session_to_be_added.mapped());
     }
 
-    // Then send a message
+    // Then clear session id and send a message
+    message->clear_session_id();
     auto out_message = game_messages::GameMessage();
     out_message.set_allocated_log_in_response(message);
     auto out_message_string = out_message.SerializeAsString();
