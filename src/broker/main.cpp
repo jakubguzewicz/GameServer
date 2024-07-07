@@ -51,19 +51,15 @@ int generate_cookie(SSL *ssl, unsigned char *cookie, unsigned int *cookie_len) {
     }
 
     auto *peer = BIO_ADDR_new();
-    BIO_dgram_get_peer(SSL_get_rbio(ssl), &peer);
-
-    auto hostname = std::unique_ptr<char>(BIO_ADDR_hostname_string(peer, 1));
-    auto port = std::unique_ptr<char>(BIO_ADDR_service_string(peer, 1));
+    auto peer_len = BIO_dgram_get_peer(SSL_get_rbio(ssl), &peer);
 
     // Copy values of hostname and port to buffer
-    std::strcpy(buffer.data(), hostname.get());
-    std::strcpy(buffer.data() + std::strlen(hostname.get()) + 1, port.get());
+    std::memcpy(buffer.data(), &peer, peer_len);
 
     // NOLINTBEGIN(*-reinterpret-cast)
     HMAC(EVP_sha256(), cookie_secret.data(), COOKIE_SECRET_LENGTH,
-         reinterpret_cast<unsigned char *>(buffer.data()),
-         std::strlen(buffer.data()), result.data(), &result_length);
+         reinterpret_cast<unsigned char *>(buffer.data()), peer_len,
+         result.data(), &result_length);
     // NOLINTEND(*-reinterpret-cast)
 
     std::memcpy(cookie, result.data(), result_length);
@@ -88,19 +84,15 @@ int verify_cookie(SSL *ssl, const unsigned char *cookie,
     }
 
     auto *peer = BIO_ADDR_new();
-    BIO_dgram_get_peer(SSL_get_rbio(ssl), &peer);
-
-    auto hostname = std::unique_ptr<char>(BIO_ADDR_hostname_string(peer, 1));
-    auto port = std::unique_ptr<char>(BIO_ADDR_service_string(peer, 1));
+    auto peer_len = BIO_dgram_get_peer(SSL_get_rbio(ssl), &peer);
 
     // Copy values of hostname and port to buffer
-    std::strcpy(buffer.data(), hostname.get());
-    std::strcpy(buffer.data() + std::strlen(hostname.get()) + 1, port.get());
+    std::memcpy(buffer.data(), &peer, peer_len);
 
     // NOLINTBEGIN(*-reinterpret-cast)
     HMAC(EVP_sha256(), cookie_secret.data(), COOKIE_SECRET_LENGTH,
-         reinterpret_cast<unsigned char *>(buffer.data()),
-         std::strlen(buffer.data()), result.data(), &result_length);
+         reinterpret_cast<unsigned char *>(buffer.data()), peer_len,
+         result.data(), &result_length);
     // NOLINTEND(*-reinterpret-cast)
 
     if (cookie_len == result_length &&
@@ -120,6 +112,9 @@ SSL_CTX *setup_new_dtls_ctx(const std::string &cert_path,
     }
 
     SSL_CTX_set_min_proto_version(dtls_ctx, DTLS1_2_VERSION);
+
+    SSL_CTX_set_cookie_generate_cb(dtls_ctx, generate_cookie);
+    SSL_CTX_set_cookie_verify_cb(dtls_ctx, &verify_cookie);
 
     if (SSL_CTX_use_certificate_file(dtls_ctx, cert_path.c_str(),
                                      SSL_FILETYPE_PEM) != 1) {
@@ -187,9 +182,10 @@ void setup_dtls_listener_socket(int main_fd, SSL &ssl,
     }
 
     // Set up bio with fd listening for new connections
-    auto *bio = BIO_new_dgram(main_fd, BIO_NOCLOSE);
+    auto *bio = BIO_new_dgram(main_fd, BIO_CLOSE);
     SSL_set_bio(&ssl, bio, bio);
 
+    SSL_set_options(&ssl, SSL_OP_COOKIE_EXCHANGE);
     // Listen for the handshake of new connection and save it's connection tuple
     // to peer pointer
     BIO_ADDR *peer = BIO_ADDR_new();
@@ -207,8 +203,6 @@ void setup_dtls_listener_socket(int main_fd, SSL &ssl,
     // Change fd in bio to the newly set up fd and pass it as connected
     BIO_set_fd(bio, sock, BIO_CLOSE);
     BIO_ctrl(bio, BIO_CTRL_DGRAM_SET_CONNECTED, 0, &peer);
-
-    SSL_set_options(&ssl, SSL_OP_COOKIE_EXCHANGE);
 
     // We can free addr, values are stored in system kernel by now.
     BIO_ADDR_free(peer);
@@ -256,6 +250,8 @@ void handle_client_connection(std::shared_ptr<SSL> ssl,
     // one record.
     auto buf = std::array<char, MAX_DTLS_RECORD_SIZE>();
     size_t readbytes = 0;
+
+    std::cout << "Client connected\n";
 
     while (SSL_get_shutdown(user_session.ssl.get()) == 0) {
 
@@ -503,10 +499,10 @@ void listen_for_new_clients_ssl(const std::string &port,
         setup_dtls_listener_socket(new_connection_listener_fd, *dtls_ssl,
                                    addrinfo);
 
-        SSL_set_options(dtls_ssl.get(), SSL_OP_COOKIE_EXCHANGE);
+        // SSL_set_options(dtls_ssl.get(), SSL_OP_COOKIE_EXCHANGE);
 
         if (SSL_accept(dtls_ssl.get()) < 1) {
-            std::cout << "Failed to accept client\n";
+            std::cout << "Failed to accept client111\n";
             /*
              * If the failure is due to a verification error we can get more
              * information about it from SSL_get_verify_result().

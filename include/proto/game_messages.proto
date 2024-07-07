@@ -46,7 +46,7 @@ message EntityState {
 }
 
 message CharacterUpdateData {
-    uint32 user_id = 1;
+    uint32 character_id = 1;
     EntityState character_state = 2;
 }
 
