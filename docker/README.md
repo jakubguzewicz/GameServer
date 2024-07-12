@@ -1,3 +1,9 @@
+# Build requirements
+Build all docker images from this root directory as paths in Dockerfile are relative to this folder.  
+### Example build command:
+``docker build -t <module_name> -f <module_name>/Dockerfile .``
+
+# Docker run commands
 ``docker pull mongo``  
 ``docker network create -d bridge --subnet 172.18.0.0/24 auth_server_network``  
 ``docker network create -d bridge --subnet 172.18.1.0/24 game_server_network``  
