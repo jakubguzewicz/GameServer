@@ -528,8 +528,8 @@ void listen_for_new_game_servers_ssl(const std::string &port,
                                      SslMessenger &ssl_messenger) {
 
     // TODO: change paths to use config file
-    auto cert_path = std::string("certs/client_cert.pem");
-    auto key_path = std::string("certs/client_key.pem");
+    auto cert_path = std::string("certs/game_server_cert.pem");
+    auto key_path = std::string("certs/game_server_key.pem");
 
     auto dtls_ctx = std::unique_ptr<SSL_CTX, SslDeleter>(
         setup_new_dtls_ctx(cert_path, key_path));
@@ -598,8 +598,8 @@ void listen_for_new_auth_servers_ssl(const std::string &port,
                                      SslMessenger &ssl_messenger) {
 
     // TODO: change paths to use config file
-    auto cert_path = std::string("certs/client_cert.pem");
-    auto key_path = std::string("certs/client_key.pem");
+    auto cert_path = std::string("certs/auth_server_cert.pem");
+    auto key_path = std::string("certs/auth_server_key.pem");
 
     auto tls_ctx = std::unique_ptr<SSL_CTX, SslDeleter>(
         setup_new_tls_ctx(cert_path, key_path));

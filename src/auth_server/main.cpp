@@ -74,7 +74,8 @@ int main(int argc, char const *argv[]) { // NOLINT(bugprone-exception-escape)
 
     SSL_CTX_set_verify(tls_ctx.get(), SSL_VERIFY_PEER, nullptr);
 
-    if (SSL_CTX_load_verify_file(tls_ctx.get(), "certs/cert.pem") == 0) {
+    if (SSL_CTX_load_verify_file(tls_ctx.get(), "certs/auth_server_cert.pem") ==
+        0) {
         throw std::runtime_error("Failed to load cert.pem file");
     }
 
