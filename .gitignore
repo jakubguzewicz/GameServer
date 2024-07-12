@@ -1,6 +1,14 @@
 # Created by https://www.toptal.com/developers/gitignore/api/c++,visualstudiocode,cmake
 # Edit at https://www.toptal.com/developers/gitignore?templates=c++,visualstudiocode,cmake
 
+# docker binary files of modules
+docker/broker/broker
+docker/auth_server/auth_server
+
+# certificate files
+*.pem
+*.crt
+
 #temporary files used in testing, to remove later
 tmp/
 *.pcap
