@@ -158,8 +158,7 @@ int main(int argc, char const *argv[]) { // NOLINT(bugprone-exception-escape)
                         make_document(kvp("username", username)));
                     if (result) {
                         auto credentials = Credentials();
-                        credentials.password =
-                            result.value()["password"].get_string();
+                        credentials.password = password;
                         credentials.hash = result.value()["hash"].get_string();
                         credentials.salt = result.value()["salt"].get_string();
 
