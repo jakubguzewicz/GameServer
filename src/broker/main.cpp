@@ -12,6 +12,7 @@
 #include <memory>
 #include <openssl/bio.h>
 #include <openssl/cryptoerr_legacy.h>
+#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/prov_ssl.h>
@@ -182,7 +183,7 @@ void setup_dtls_listener_socket(int main_fd, SSL &ssl,
     }
 
     // Set up bio with fd listening for new connections
-    auto *bio = BIO_new_dgram(main_fd, BIO_CLOSE);
+    auto *bio = BIO_new_dgram(main_fd, BIO_NOCLOSE);
     SSL_set_bio(&ssl, bio, bio);
 
     SSL_set_options(&ssl, SSL_OP_COOKIE_EXCHANGE);
@@ -604,10 +605,11 @@ void listen_for_new_auth_servers_ssl(const std::string &port,
     auto tls_ctx = std::unique_ptr<SSL_CTX, SslDeleter>(
         setup_new_tls_ctx(cert_path, key_path));
 
-    auto *ssl_bio = BIO_new_ssl(tls_ctx.get(), 0);
-
-    auto *accept_bio = BIO_new_accept(port.data());
-    BIO_set_accept_bios(accept_bio, ssl_bio);
+    auto *acceptor_bio = BIO_new_accept(port.c_str());
+    BIO_set_bind_mode(acceptor_bio, BIO_BIND_REUSEADDR);
+    if (BIO_do_accept(acceptor_bio) <= 0) {
+        std::cout << "First bio_do_accept in auth_server\n";
+    }
 
     while (true) {
 
@@ -619,19 +621,22 @@ void listen_for_new_auth_servers_ssl(const std::string &port,
         // compatibility with unique_ptr and we eliminate the problem with
         // automatic freeing of std::unique_ptr<BIO> when going out of scope
         // at the end of loop iteration.
-        if (BIO_do_accept(accept_bio) <= 0) {
-            std::cout << "accept bio\n";
+
+        ERR_clear_error();
+
+        if (BIO_do_accept(acceptor_bio) <= 0) {
+            continue;
         }
 
+        auto *client_bio = BIO_pop(acceptor_bio);
+        std::cout << "New auth server connected\n";
         auto tls_ssl = std::unique_ptr<SSL, SslDeleter>(SSL_new(tls_ctx.get()));
         if (tls_ssl == nullptr) {
             std::cout << "Error 18\n";
             throw std::runtime_error("Failed to create client listener SSL");
         }
-
-        auto *conn_bio = BIO_pop(accept_bio);
-
-        SSL_set_bio(tls_ssl.get(), conn_bio, conn_bio);
+        SSL_set_bio(tls_ssl.get(), client_bio, client_bio);
+        SSL_accept(tls_ssl.get());
 
         // Create handler thread and detach it
         std::thread auth_server_handler_thread(handle_auth_server_connection,
