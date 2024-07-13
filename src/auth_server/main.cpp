@@ -149,9 +149,10 @@ int main(int argc, char const *argv[]) { // NOLINT(bugprone-exception-escape)
                     auto password = in_message.log_in_request().password();
                     auto session_id = in_message.log_in_request().session_id();
 
-                    auto *login_response = new game_messages::LogInResponse;
-                    login_response->set_username(username);
-                    login_response->set_session_id(session_id);
+                    auto &login_response =
+                        *out_message.mutable_log_in_response();
+                    login_response.set_username(username);
+                    login_response.set_session_id(session_id);
 
                     auto result = credentials_collection.find_one(
                         make_document(kvp("username", username)));
@@ -163,12 +164,11 @@ int main(int argc, char const *argv[]) { // NOLINT(bugprone-exception-escape)
                         credentials.salt = result.value()["salt"].get_string();
 
                         if (check_password(credentials)) {
-                            login_response->set_user_id(
+                            login_response.set_user_id(
                                 result.value()["user_id"].get_int32());
                         }
                     }
 
-                    out_message.set_allocated_log_in_response(login_response);
                     auto out_message_string = out_message.SerializeAsString();
                     // NOLINTBEGIN(*-narrowing-conversions)
                     SSL_write(tls_ssl.get(), out_message_string.data(),
