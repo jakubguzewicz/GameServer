@@ -18,12 +18,11 @@
 #include <mongocxx/stdx.hpp>
 #include <mongocxx/uri.hpp>
 #include <openssl/bio.h>
+#include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/ssl.h>
 #include <stdexcept>
 #include <sys/socket.h>
-
-#include "kdf_deleter.h"
 
 #include <openssl/core_names.h> /* OSSL_KDF_*           */
 #include <openssl/kdf.h>        /* EVP_KDF_*            */
@@ -150,12 +149,13 @@ int main(int argc, char const *argv[]) { // NOLINT(bugprone-exception-escape)
                     auto password = in_message.log_in_request().password();
                     auto session_id = in_message.log_in_request().session_id();
 
-                    game_messages::LogInResponse login_response;
-                    login_response.set_username(username);
-                    login_response.set_session_id(session_id);
+                    auto *login_response = new game_messages::LogInResponse;
+                    login_response->set_username(username);
+                    login_response->set_session_id(session_id);
 
                     auto result = credentials_collection.find_one(
                         make_document(kvp("username", username)));
+
                     if (result) {
                         auto credentials = Credentials();
                         credentials.password = password;
@@ -163,12 +163,12 @@ int main(int argc, char const *argv[]) { // NOLINT(bugprone-exception-escape)
                         credentials.salt = result.value()["salt"].get_string();
 
                         if (check_password(credentials)) {
-                            login_response.set_user_id(
+                            login_response->set_user_id(
                                 result.value()["user_id"].get_int32());
                         }
                     }
 
-                    out_message.set_allocated_log_in_response(&login_response);
+                    out_message.set_allocated_log_in_response(login_response);
                     auto out_message_string = out_message.SerializeAsString();
                     // NOLINTBEGIN(*-narrowing-conversions)
                     SSL_write(tls_ssl.get(), out_message_string.data(),
@@ -184,19 +184,19 @@ int main(int argc, char const *argv[]) { // NOLINT(bugprone-exception-escape)
 }
 
 bool check_password(const Credentials &credentials) {
-    const static size_t outlen = 256;
-    static auto kdf = std::unique_ptr<EVP_KDF, KdfDeleter>(
-        EVP_KDF_fetch(nullptr, "ARGON2I", nullptr));
+    const static size_t outlen = 32;
 
-    static auto kdf_ctx =
-        std::unique_ptr<EVP_KDF_CTX, KdfDeleter>(EVP_KDF_CTX_new(kdf.get()));
+    static EVP_KDF *kdf = EVP_KDF_fetch(NULL, "ARGON2D", NULL);
+    static EVP_KDF_CTX *kctx = EVP_KDF_CTX_new(kdf);
+    OSSL_PARAM params[7], *p = params;
 
-    auto params = std::array<OSSL_PARAM, 6>(); // NOLINT(*-magic-numbers)
-    auto *params_ptr = params.data();
+    // auto params = std::array<OSSL_PARAM, 7>(); // NOLINT(*-magic-numbers)
+    // auto *params_ptr = params.data();
 
     uint32_t lanes = 1;
     uint32_t threads = 1;
     uint32_t memcost = 2097152; // NOLINT(*-magic-numbers): 2 GBs for 1 lane
+    uint32_t iters = 3;
 
     auto result = std::array<unsigned char, outlen>();
 
@@ -204,36 +204,32 @@ bool check_password(const Credentials &credentials) {
 
     // NOLINTBEGIN(*-pointer-arithmetic): Code snippet taken from OpenSSL
     // official documentation
-    *params_ptr++ =
-        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_THREADS, &threads);
-    *params_ptr++ =
-        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_LANES, &lanes);
-    *params_ptr++ =
-        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_MEMCOST, &memcost);
-    *params_ptr++ = OSSL_PARAM_construct_octet_string(
-        OSSL_KDF_PARAM_SALT, (void *)salt_base64.first.data(),
-        salt_base64.second);
-    *params_ptr++ = OSSL_PARAM_construct_octet_string(
+    *p++ = OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_THREADS, &threads);
+    *p++ = OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_LANES, &lanes);
+    *p++ = OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_MEMCOST, &memcost);
+    *p++ = OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT,
+                                             (void *)salt_base64.first.data(),
+                                             salt_base64.second);
+    *p++ = OSSL_PARAM_construct_octet_string(
         OSSL_KDF_PARAM_PASSWORD, (void *)credentials.password.data(),
-        credentials.password.length());
-    *params_ptr++ = OSSL_PARAM_construct_end();
+        credentials.password.size());
+    *p++ = OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, &iters);
+    *p++ = OSSL_PARAM_construct_end();
     // NOLINTEND(*-pointer-arithmetic)
 
     // Generate Hash
-    if (EVP_KDF_derive(kdf_ctx.get(), result.data(), result.size(),
-                       params_ptr) != 1) {
+    if (EVP_KDF_derive(kctx, result.data(), outlen, params) != 1) {
         return false;
     }
 
     auto hash_base64 = decode_base64(credentials.hash);
+    auto result_string = std::string((char *)result.data(), result.size());
+    auto given_hash_string =
+        std::string((char *)hash_base64.first.data(), hash_base64.first.size());
 
     if (result.size() != outlen) {
         return false;
     }
 
-    if (std::memcmp(result.data(), hash_base64.first.data(), outlen) == 0) {
-        return true;
-    }
-
-    return true;
+    return std::memcmp(result.data(), hash_base64.first.data(), outlen) == 0;
 }
