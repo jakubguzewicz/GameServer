@@ -12,7 +12,7 @@ Build all docker images from this root directory as paths in Dockerfile are rela
 Place the file containing root password in /run/secrets/mongodb_root_pwd and secure the directory  
 ```bash
 docker run -d -p 27017:27017 --network database_network --name mongodb -v game_server_database:/data/db -e MONGODB_INITDB_ROOT_USERNAME=game_server_root_user -e MONGODB_INITDB_ROOT_PASSWORD_FILE=/run/secrets/mongodb_root_pwd mongo:latest
-docker run -d --name broker broker:latest
+docker run -d --name broker -p 4720:4720/udp broker:latest
 docker network connect auth_server_network broker
 docker network connect game_server_network broker
 docker run -d --name auth_server --network auth_server_network auth_server:latest
