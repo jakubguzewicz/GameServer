@@ -76,9 +76,15 @@ SslMessenger::send_message(game_messages::LogInResponse *message) {
     // If login was correct, then add to user sessions
     if (message->has_user_id()) {
         write_lock lock(_user_mutex);
-        user_sessions.insert_or_assign(
-            user_session_to_be_added.mapped().user_ID,
-            user_session_to_be_added.mapped());
+
+        auto insert_return =
+            user_sessions.insert({user_session_to_be_added.mapped().user_ID,
+                                  user_session_to_be_added.mapped()});
+        if (!insert_return.second) {
+            user_sessions.erase(insert_return.first);
+            user_sessions.insert({user_session_to_be_added.mapped().user_ID,
+                                  user_session_to_be_added.mapped()});
+        }
     }
 
     // Then clear session id and send a message
