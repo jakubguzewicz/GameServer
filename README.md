@@ -15,7 +15,7 @@ All source files are included in ``src`` and ``include`` directories. ``docker``
 
 ### Building
 While in main directory:  
-```console
+```bash
 cmake -B build
 cmake --build Build
 ```
@@ -23,3 +23,10 @@ cmake --build Build
 Built binaries are saved under path ``build/src/<module_name>/<module_name>``, where available modules are:
 - broker
 - auth_server
+  
+You should also copy the compiled binaries to docker folders after building:
+```bash
+cmake --build build
+cp build/src/auth_server/auth_server docker/auth_server/auth_server
+cp build/src/broker/broker docker/broker/broker
+```
