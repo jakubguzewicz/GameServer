@@ -233,12 +233,5 @@ bool check_password(const Credentials &credentials) {
         return false;
     }
 
-    char result_buff[50];
-    EVP_EncodeBlock((unsigned char *)result_buff, result.data(), 32);
-
-    // TODO: REMOVE!!!!
-    std::cerr << credentials.salt << ": " << result_buff << " sanity check"
-              << std::endl;
-
     return std::memcmp(result.data(), hash_base64.first.data(), outlen) == 0;
 }
