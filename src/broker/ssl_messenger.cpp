@@ -75,6 +75,7 @@ SslMessenger::send_message(game_messages::LogInResponse *message) {
 
     // If login was correct, then add to user sessions
     if (message->has_user_id()) {
+        user_session_to_be_added.mapped().user_ID = message->user_id();
         write_lock lock(_user_mutex);
 
         auto insert_return =
@@ -108,7 +109,7 @@ SslMessenger::send_message(game_messages::JoinWorldRequest *message) const {
     std::shared_ptr<SSL> ssl;
     // First we need to check if we can send it anywhere
     {
-        read_lock lock(_auth_mutex);
+        read_lock lock(_game_mutex);
         auto iterator = this->game_servers.begin();
 
         // If we cannot send it, return early
@@ -138,6 +139,7 @@ game_messages::GameMessage SslMessenger::send_message(
     if (message->has_character_data()) {
         // User successfully joined the world, because character data is set
         write_lock lock(_game_mutex);
+        user_session.get().connected_game_server_ID = 1;
         game_server_to_add_user_session_to.connectedUsers.insert_or_assign(
             user_session.get().user_ID, user_session.get());
     }

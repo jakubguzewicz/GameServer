@@ -28,6 +28,7 @@
 #include <openssl/kdf.h>        /* EVP_KDF_*            */
 #include <openssl/params.h>     /* OSSL_PARAM_*         */
 #include <openssl/thread.h>     /* OSSL_set_max_threads */
+#include <type_traits>
 #include <vector>
 
 using bsoncxx::builder::basic::kvp;
@@ -186,9 +187,10 @@ int main(int argc, char const *argv[]) { // NOLINT(bugprone-exception-escape)
 bool check_password(const Credentials &credentials) {
     const static size_t outlen = 32;
 
-    static EVP_KDF *kdf = EVP_KDF_fetch(NULL, "ARGON2D", NULL);
+    static EVP_KDF *kdf = EVP_KDF_fetch(NULL, "ARGON2ID", NULL);
     static EVP_KDF_CTX *kctx = EVP_KDF_CTX_new(kdf);
-    OSSL_PARAM params[7], *p = params;
+    OSSL_PARAM params[7];
+    OSSL_PARAM *p = params;
 
     // auto params = std::array<OSSL_PARAM, 7>(); // NOLINT(*-magic-numbers)
     // auto *params_ptr = params.data();
@@ -196,7 +198,7 @@ bool check_password(const Credentials &credentials) {
     uint32_t lanes = 1;
     uint32_t threads = 1;
     uint32_t memcost = 2097152; // NOLINT(*-magic-numbers): 2 GBs for 1 lane
-    uint32_t iters = 3;
+    uint32_t iters = 1;
 
     auto result = std::array<unsigned char, outlen>();
 
@@ -230,6 +232,13 @@ bool check_password(const Credentials &credentials) {
     if (result.size() != outlen) {
         return false;
     }
+
+    char result_buff[50];
+    EVP_EncodeBlock((unsigned char *)result_buff, result.data(), 32);
+
+    // TODO: REMOVE!!!!
+    std::cerr << credentials.salt << ": " << result_buff << " sanity check"
+              << std::endl;
 
     return std::memcmp(result.data(), hash_base64.first.data(), outlen) == 0;
 }

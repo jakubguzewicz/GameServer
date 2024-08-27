@@ -312,6 +312,8 @@ void handle_client_connection(std::shared_ptr<SSL> ssl,
 
             case game_messages::GameMessage::kJoinWorldRequest: {
                 if (user_session.user_ID == 0) {
+                    std::cout << "Join world request without user_id"
+                              << std::endl;
                     // TODO: send message about no authentication
                 } else {
                     ssl_messenger.send_message(
@@ -336,6 +338,8 @@ void handle_game_server_connection(std::shared_ptr<SSL> ssl,
     static uint32_t game_server_id_counter = 1;
     auto server_id = game_server_id_counter++;
     auto game_server_session = GameServer(std::move(ssl));
+
+    std::cout << "Server connected" << std::endl;
 
     // Maximum DTLS record size is 16kB and single read can return only exactly
     // one record.
@@ -379,6 +383,7 @@ void handle_game_server_connection(std::shared_ptr<SSL> ssl,
             }
         }
     }
+    std::cout << "game_server removed" << std::endl;
     ssl_messenger.remove_from_game_servers(server_id);
 }
 
@@ -569,7 +574,6 @@ void listen_for_new_game_servers_ssl(const std::string &port,
         setup_dtls_listener_socket(new_connection_listener_fd, *dtls_ssl,
                                    addrinfo);
 
-        // TODO: check if needed in mock
         SSL_set_options(dtls_ssl.get(), SSL_OP_COOKIE_EXCHANGE);
 
         if (SSL_accept(dtls_ssl.get()) < 1) {
