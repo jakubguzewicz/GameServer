@@ -17,7 +17,7 @@ All source files are included in ``src`` and ``include`` directories. ``docker``
 While in main directory:  
 ```bash
 cmake -B build
-cmake --build Build
+cmake --build build
 ```
   
 Built binaries are saved under path ``build/src/<module_name>/<module_name>``, where available modules are:
