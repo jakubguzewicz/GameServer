@@ -1,5 +1,5 @@
 # GameServer
-This is the repository containing all source files needed to build and containerize game server infrastructure not including the game server (instance of the game) itself.  
+This is the repository containing all source files needed to build and containerize game server infrastructure not including the game server (instance of the game) itself. This code is not production ready and needs a lot of refactoring before using it like that.  
   
 This repository is using and requires:
 - CMake
