@@ -1,5 +1,9 @@
 # GameServer
-This is the repository containing all source files needed to build and containerize game server infrastructure not including the game server (instance of the game) itself. This code is not production ready and needs a lot of refactoring before using it like that.  
+This is the repository containing all source files needed to build and containerize game server infrastructure not including the game server (instance of the game) itself.  
+  
+This project was made to be as modular as possible (to make containerization and scalability easy) and with cybersecurity in mind.  
+  
+This code is not production ready and needs a lot of refactoring before using it like that.  
 
 This project was made along with the example MMO game in Godot available there:  [https://github.com/jakubguzewicz/ExampleGodotMmoGame](https://github.com/jakubguzewicz/ExampleGodotMmoGame)
   
